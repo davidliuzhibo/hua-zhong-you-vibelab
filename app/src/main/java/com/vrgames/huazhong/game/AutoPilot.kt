@@ -17,7 +17,7 @@ import com.vrgames.huazhong.core.Task
  *
  *   adb shell am broadcast -a com.vrgames.huazhong.TEST -p com.vrgames.huazhong --es cmd walk
  *
- * cmd: home · open --es id <section> · solve (the open section, every task right) · walk (every
+ * cmd: home · full [--es id off] (走进画里 / 回到小景) · open --es id <section> · solve (the open section, every task right) · walk (every
  * section of both scrolls in turn) · grant --es id <stars> · night · view --es id
  * "x,y,z,yaw,scale,pitch"|reset · reset · stop
  */
@@ -46,7 +46,10 @@ object AutoPilot {
             "walk" -> { main.removeCallbacksAndMessages(null); walking = true; main.postDelayed(::walkStep, 500) }
             "grant" -> Game.grant(id?.toIntOrNull() ?: 3)
             "night" -> Game.lanternNight()
+            "enter" -> Game.enter()
+            "full" -> Game.walkIn(id != "off")
             "view" -> Game.debugView = id?.takeIf { it != "reset" }
+            "clean" -> Game.debugClean = id != "off"
             "reset" -> { main.removeCallbacksAndMessages(null); walking = false; Game.restart() }
             "stop" -> { main.removeCallbacksAndMessages(null); walking = false }
             else -> Log.w(TAG, "unknown command $cmd")
@@ -58,9 +61,12 @@ object AutoPilot {
         val v = Game.visit ?: return
         if (Game.phase != Game.Phase.IN) return
         val view = Game.view
+        // A painting with a world: step in first, and wait for it to be built.
+        if (Game.hasWorld(Game.section) && !Game.inside) { Game.enter(); main.postDelayed(::solve, 1500); return }
+        if (Game.inside && Game.world?.built != true) { main.postDelayed(::solve, 1000); return }
         when (val t = v.task ?: return) {
             is Task.Find -> Game.pinchWall(true)
-            is Task.Restore -> view?.pieceTarget()?.let { view.movePiece(it); Game.pieceLetGo() }
+            is Task.Restore -> if (Game.inside) Game.world?.let { w -> w.aimPiece(); Game.pieceLetGo() } else view?.pieceTarget()?.let { view.movePiece(it); Game.pieceLetGo() }
             is Task.Quiz -> Game.answer(t.answer)
             is Task.Rub -> Game.rub(t.tool, 0.12, null)
             is Task.Match -> t.pairs.entries.firstOrNull { it.key !in v.matched }?.let { Game.paint(it.key, it.value) }

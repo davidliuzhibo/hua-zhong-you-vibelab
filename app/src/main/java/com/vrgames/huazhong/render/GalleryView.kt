@@ -7,6 +7,7 @@ import android.graphics.Path
 import android.graphics.Typeface
 import com.pico.spatial.core.ecs.CollisionComponent
 import com.pico.spatial.core.ecs.Entity
+import com.pico.spatial.core.ecs.ModelEntity
 import com.pico.spatial.core.ecs.HoverEffectComponent
 import com.pico.spatial.core.ecs.InteractableComponent
 import com.pico.spatial.core.ecs.resource.BlendingMode
@@ -83,21 +84,59 @@ class GalleryView {
 
     var eyeHeight = 1.2f
 
+    /** The room round the gallery: a dark sphere until a painted panorama (the study, v0.2) is put in. */
+    private val dark = model(sphere, unlit(color(0.075f, 0.062f, 0.05f)).apply { setCullingMode(MaterialCullingMode.NONE) }).apply { setScale(30f) }
+    private var backdrop: Entity? = null
+    private var backdropName: String? = null
+    private val floorParts = ArrayList<Entity>()
+
     init {
         // A dim warm room: a backdrop all round, a dark wooden floor, a few golden motes in the air.
-        root.addChild(model(sphere, unlit(color(0.075f, 0.062f, 0.05f)).apply { setCullingMode(MaterialCullingMode.NONE) }).apply { setScale(30f) })
+        root.addChild(dark)
         trophyRoot.setPos(Vector3(0f, 0f, 0f))
     }
 
+    /**
+     * The room round the gallery as a painted panorama [name] (PICO 1116: 「skybox 是纯黑」): the study round
+     * the scroll wall, the painting academy round the pigment bench. Its middle column ahead.
+     */
+    fun setBackdrop(name: String, t: TextureResource, bands: List<TextureResource>? = null) {
+        if (backdropName == name) return
+        backdrop?.destroy()
+        backdropName = name
+        backdrop = WorldView.skySphere(t).apply { setScale(28f); transform().eulerAngles = EulerAngles(0f, -90f, 0f) }
+        // The sharp band just inside it (a child: it comes and goes with the room).
+        bands?.forEachIndexed { h, bt ->
+            backdrop!!.addChild(ModelEntity(WorldView.bandMesh(h), UnlitMaterial.create(BlendingMode.OPAQUE).apply { setBaseColor(color(1f, 1f, 1f)); setBaseColorTexture(bt); setCullingMode(MaterialCullingMode.FRONT) }).apply { setScale(149f / 150f) })
+        }
+        root.addChild(backdrop!!)
+        dark.enabled = false
+    }
+
+    /** Inside a painting (入画): the gallery's own room, wall and floor are put away; the panels stay. */
+    fun inside(on: Boolean) {
+        val out = !on
+        backdrop?.let { if (it.enabled != out) it.enabled = out }
+        if (backdrop == null && dark.enabled != out) dark.enabled = out
+        for (e in floorParts) if (e.enabled != out) e.enabled = out
+        if (wallRoot.enabled != out && section != null) wallRoot.enabled = out
+        if (homeRoot.enabled && on) homeRoot.enabled = false
+        if (trophyRoot.enabled != out) trophyRoot.enabled = out
+        motes.entity.enabled = out
+    }
+
     fun floor() {
-        root.addChild(model(cyl, unlit(color(0.16f, 0.115f, 0.08f))).apply {
+        floorParts.forEach { it.destroy() }
+        floorParts.clear()
+        floorParts += model(cyl, unlit(color(0.16f, 0.115f, 0.08f))).apply {
             setPos(Vector3(0f, -eyeHeight, 0f))
             transform().setScaleVector(Vector3(6f, 0.01f, 6f))
-        })
-        root.addChild(model(cyl, glow(color(1f, 0.8f, 0.5f, 0.12f))).apply {
+        }
+        floorParts += model(cyl, glow(color(1f, 0.8f, 0.5f, 0.12f))).apply {
             setPos(Vector3(0f, -eyeHeight + 0.01f, -0.4f))
             transform().setScaleVector(Vector3(1.4f, 0.002f, 1.4f))
-        })
+        }
+        floorParts.forEach { root.addChild(it) }
     }
 
     // ---- Meshes ----
@@ -131,7 +170,7 @@ class GalleryView {
         val ymax = maxOf(yTop, yBot).toFloat()
         return MeshResource.createWithMeshModel(
             MeshModel(pos, idx, nor, List(pos.size) { Vector4(1f, 0f, 0f, 1f) }, uv),
-            BoundingBox(Vector3(-r.toFloat(), ymin, -r.toFloat()), Vector3(r.toFloat(), ymax, 0f)), name,
+            bbox(Vector3(-r.toFloat(), ymin, -r.toFloat()), Vector3(r.toFloat(), ymax, 0f)), name,
         )
     }
 
@@ -143,7 +182,7 @@ class GalleryView {
         val uv = listOf(Vector2(u0, v1), Vector2(u1, v1), Vector2(u1, v0), Vector2(u0, v0))
         return MeshResource.createWithMeshModel(
             MeshModel(pos, listOf(0, 1, 2, 0, 2, 3), List(4) { Vector3(0f, 0f, 1f) }, List(4) { Vector4(1f, 0f, 0f, 1f) }, uv),
-            BoundingBox(Vector3(-x, -y, -0.001f), Vector3(x, y, 0.001f)), name,
+            bbox(Vector3(-x, -y, -0.001f), Vector3(x, y, 0.001f)), name,
         )
     }
 
@@ -267,7 +306,7 @@ class GalleryView {
     // ---- A section on the wall ----
 
     /** Puts section [s] on the wall with texture [t]: three bands at three depths, and the pinch boxes. */
-    fun showSection(s: Section, t: TextureResource) {
+    fun showSection(s: Section, t: TextureResource, enterable: Boolean = false) {
         clearWall()
         section = s
         tex = t.shared()
@@ -289,7 +328,8 @@ class GalleryView {
                 val th = -span / 2 + span * (i + 0.5) / segs
                 val e = Entity()
                 onWall(e, r + 0.04, th, (top - (v0 + v1) / 2 * wallH) * k0)
-                hit(e, "wall", Vector3((span * r / segs).toFloat(), ((v1 - v0) * wallH * k0).toFloat(), 0.03f), hover = false)
+                // A painting one can step into lights up under the gaze (入画, v0.2); otherwise no highlight (it would give the spot away).
+                hit(e, "wall", Vector3((span * r / segs).toFloat(), ((v1 - v0) * wallH * k0).toFloat(), 0.03f), hover = enterable)
                 wallRoot.addChild(e)
             }
         }

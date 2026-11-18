@@ -51,6 +51,19 @@ object Game {
     var music: Music? = null
     var sound: Sound? = null
     var view: GalleryView? = null
+    var world: com.vrgames.huazhong.render.WorldView? = null
+    /** Inside the painting (入画, v0.2): the section's world is round the player and its tasks are done there. */
+    var inside by mutableStateOf(false); private set
+    /**
+     * v0.3 (2026-11-18): while [inside], the world is either the miniature on the table before the player (the tasks are
+     * done there) or, after 「走进画里」, life size round them ([full]).
+     */
+    var full by mutableStateOf(false); private set
+    private var worldTasks = false
+    /** Bumped to make the stage go in or out of the painting. */
+    var worldVersion by mutableIntStateOf(0); private set
+    /** Whether section [s] can be stepped into. */
+    fun hasWorld(s: Section?) = s != null && !s.bench && com.vrgames.huazhong.core.Worlds.of(s.id) != null
 
     fun init(context: Context) {
         app = context.applicationContext
@@ -109,6 +122,7 @@ object Game {
 
     fun toHome() {
         stopVoice()
+        leaveWorld()
         phase = Phase.HOME
         section = null
         visit = null
@@ -131,6 +145,7 @@ object Game {
             return
         }
         stopVoice()
+        leaveWorld()
         section = s
         visit = Visit(s)
         lastDone = null
@@ -147,17 +162,95 @@ object Game {
 
     fun again() = section?.let { open(it) }
 
-    /** Called by the stage once the section's picture is on the wall: sets up the task. */
+    /** Called by the stage once the section's picture is on the wall: sets up the task (or asks to step in). */
     fun wallReady() {
+        val s = section ?: return
+        if (hasWorld(s) && !inside) {
+            // v0.3: the painting's world comes up at once as a miniature on the table (上元夜游 straight in at life size).
+            enter()
+            return
+        }
         setUpTask()
     }
+
+    /** 入画: step into the section's painting. */
+    fun enter() {
+        val s = section ?: return
+        if (phase != Phase.IN || inside || !hasWorld(s)) return
+        inside = true
+        full = nightOn
+        worldTasks = false
+        sound?.play(Sfx.OPEN)
+        say(if (nightOn) "入画中……" else "画里的景物正在桌上铺开……")
+        worldVersion++
+        version++
+        Log.i(TAG, "enter ${s.id}")
+    }
+
+    /** The stage has built (or re-placed) the world: the tasks begin, the first time. */
+    fun worldReady() {
+        if (!inside) return
+        world?.let { w -> section?.let { s -> ambient(com.vrgames.huazhong.core.Worlds.of(s.id)?.sound?.let { if (nightOn) "night" else it }) } }
+        if (!worldTasks) {
+            worldTasks = true
+            setUpTask()
+        }
+    }
+
+    /** The stage has put the world at life size (after its sky came in, the first time). */
+    fun walkedIn() {
+        if (full) say("走进画里了：转头看看四周。任务也可以在这里做；「回到小景」回到桌上。")
+    }
+
+    /** 「走进画里」 / 「回到小景」: life size round the player, or back to the miniature on the table. */
+    fun walkIn(on: Boolean = !full) {
+        if (!inside || full == on) return
+        full = on
+        sound?.play(Sfx.OPEN)
+        say(if (on) "正在走进画里……（第一次要等十几秒，远处的山水正在铺开）" else "回到桌上的小景。")
+        worldVersion++
+        version++
+        Log.i(TAG, "walk in $on")
+    }
+
+    /** Out of the painting (leaving the section). */
+    private fun leaveWorld() {
+        if (!inside) return
+        inside = false
+        full = false
+        ambient(null)
+        worldVersion++
+    }
+
+    // ---- The world's ambient sound (river, street, wind...): a loop while inside ----
+    private var amb: android.media.MediaPlayer? = null
+
+    private fun ambient(name: String?) {
+        amb?.let { runCatching { it.stop() }; runCatching { it.release() } }
+        amb = null
+        val a = app ?: return
+        name ?: return
+        runCatching {
+            val fd = a.assets.openFd("audio/amb_$name.ogg")
+            amb = android.media.MediaPlayer().apply {
+                setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
+                fd.close()
+                isLooping = true
+                setVolume(0.55f, 0.55f)
+                prepare()
+                start()
+            }
+        }.onFailure { Log.i(TAG, "ambient $name: ${it.message}") }
+    }
+
+    fun pauseAmbient(on: Boolean) = amb?.let { runCatching { if (on) it.pause() else it.start() } }
 
     private fun setUpTask() {
         val v = visit ?: return
         val view = view ?: return
         when (val t = v.task) {
-            is Task.Find -> view.findBox(t.spot)
-            is Task.Restore -> view.loosePiece(t.piece)
+            is Task.Find -> if (!inside) view.findBox(t.spot)
+            is Task.Restore -> if (inside) world?.loosePiece() else view.loosePiece(t.piece)
             else -> Unit
         }
         view.showBench(section?.bench == true)
@@ -171,8 +264,8 @@ object Game {
             Visit.Answer.Right -> {
                 sound?.play(Sfx.RIGHT)
                 lastDone = t.done
-                if (t is Task.Find) view?.popOut(t.spot, t.label)
-                if (t is Task.Restore) view?.restored()
+                if (t is Task.Find) { if (inside) world?.found(t.label) else view?.popOut(t.spot, t.label) }
+                if (t is Task.Restore) { if (inside) world?.restored() else view?.restored() }
                 if (v.done) finish() else main.postDelayed({ if (visit === v) setUpTask() }, if (t is Task.Find) 1800 else 600)
             }
             Visit.Answer.Wrong -> {
@@ -197,6 +290,8 @@ object Game {
     fun pinchWall(onSpot: Boolean, at: Vec3? = null) {
         val v = visit ?: return
         if (phase != Phase.IN) return
+        // On the painting, outside it: every pinch on it steps in.
+        if (!inside && hasWorld(section)) { enter(); return }
         val t = v.task as? Task.Find ?: return
         val a = v.find(onSpot)
         if (a == Visit.Answer.Wrong) view?.wrongAt(at)
@@ -207,7 +302,17 @@ object Game {
     fun pieceLetGo() {
         val v = visit ?: return
         val t = v.task as? Task.Restore ?: return
-        val ok = view?.pieceOnHome() == true
+        val ok = if (inside) world?.pieceAimed() == true else view?.pieceOnHome() == true
+        if (!ok && inside && !full) {
+            say("还没放到位：把它拿到桌上小景里发光的位置，放下再松手。")
+            sound?.play(Sfx.PICK)
+            return
+        }
+        if (!ok && inside) {
+            say("还没对准：从你眼前看过去，把小模型移到远处发光的位置上再松手。")
+            sound?.play(Sfx.PICK)
+            return
+        }
         if (!ok) {
             say("还没对准：把它拿到墙上那块空白的位置，对齐了再松手。")
             sound?.play(Sfx.PICK)
@@ -254,8 +359,8 @@ object Game {
         if (phase != Phase.IN) return
         say(v.hint())
         when (val t = v.task) {
-            is Task.Find -> view?.hintAt(t.spot)
-            is Task.Restore -> view?.hintAt(t.piece)
+            is Task.Find -> if (inside) world?.hintFind() else view?.hintAt(t.spot)
+            is Task.Restore -> if (inside) world?.hintPiece() else view?.hintAt(t.piece)
             else -> Unit
         }
         version++
@@ -320,5 +425,7 @@ object Game {
     // Debug hooks (AutoPilot).
     var debugOpen by mutableStateOf<String?>(null)
     var debugView by mutableStateOf<String?>(null)
+    /** Debug only (store shots): every panel hidden, so the painting's world is seen on its own. */
+    var debugClean by mutableStateOf(false)
     var faceRequest by mutableIntStateOf(0)
 }

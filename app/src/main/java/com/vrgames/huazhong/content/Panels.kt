@@ -36,13 +36,21 @@ const val PANEL_NOTE = "note"
 const val PANEL_MENU = "menu"
 
 // Ink for text on the scrolls' paper (the page and scroll frames); light text on the title frame.
-private val Ink = Color(0xFF241A10)
-private val InkSoft = Color(0xFF5E4C39)
-private val SealRed = Color(0xFFB3271C)
+private val Ink = Color(0xFFF6EEDC)
+// v0.3.1 (device 2026-11-18: 「部分字体的颜色跟面板底色的颜色过于接近……很多文字看不清楚」): the paper of the 3D
+// scroll frames is lit with the scene and went grey inside the darker paintings, under dark ink. Now the text sits on a
+// dark lacquer panel of its own (unlit, the same in every scene, see [Paper]) in light colours: rice-white for the body,
+// warm bright amber and orange for what must stand out.
+private val InkSoft = Color(0xFFE2D5BC)
+private val SealRed = Color(0xFFFFC27A)
 val LabelInk = Color(0xFFF4EEE2)
 val Brass = Color(0xFFE2B75A)
 val Dim = Color(0xFFE2DACB)
 private val PanelBg = Color(0xE6151A22)
+private val PaperBg = Color(0xF51C1511)
+private val TitleRed = Color(0xFFFFA567)
+private val Green = Color(0xFFA8E8B4)
+private val GoldInk = Color(0xFFFFD86E)
 
 @Composable
 fun PhysicalLengthConverter.m(meters: Float): Dp = lengthToDp(meters, LengthUnit.Meters)
@@ -89,7 +97,7 @@ private fun Answer(c: PhysicalLengthConverter, text: String, onClick: () -> Unit
     val shape = RoundedCornerShape(c.m(0.01f))
     Text(
         text,
-        Modifier.clip(shape).background(Color(0x22B3271C)).border(c.m(0.0018f), SealRed, shape).clickable { onClick() }.padding(horizontal = c.m(0.014f), vertical = c.m(0.008f)),
+        Modifier.clip(shape).background(Color(0x33FFC27A)).border(c.m(0.0018f), SealRed, shape).clickable { onClick() }.padding(horizontal = c.m(0.014f), vertical = c.m(0.008f)),
         fontSize = c.sz(0.018f),
         color = Ink,
     )
@@ -100,7 +108,8 @@ private fun Answer(c: PhysicalLengthConverter, text: String, onClick: () -> Unit
 private fun Paper(c: PhysicalLengthConverter, width: Float, height: Float, content: @Composable () -> Unit) {
     Layout(
         content = { Column(verticalArrangement = Arrangement.spacedBy(c.m(0.006f))) { content() } },
-        modifier = Modifier.width(c.m(width)).height(c.m(height)).padding(horizontal = c.m(0.018f), vertical = c.m(0.006f)),
+        modifier = Modifier.width(c.m(width)).height(c.m(height)).clip(RoundedCornerShape(c.m(0.008f))).background(PaperBg)
+            .padding(horizontal = c.m(0.018f), vertical = c.m(0.006f)),
     ) { measurables, constraints ->
         val p = measurables[0].measure(constraints.copy(minWidth = 0, minHeight = 0, maxHeight = Constraints.Infinity))
         val s = if (p.height > constraints.maxHeight) constraints.maxHeight.toFloat() / p.height else 1f
@@ -122,12 +131,12 @@ private fun stars(n: Int) = "★".repeat(n) + "☆".repeat(3 - n)
 fun CardPanel(c: PhysicalLengthConverter) {
     @Suppress("UNUSED_VARIABLE") val v = Game.version
     Paper(c, 0.52f, 0.25f) {
-        Text("画中游", fontSize = c.sz(0.036f), color = Color(0xFFE8564A))
-        Text("走进两幅宋代名画：卷一《清明上河图》，卷二《千里江山图》。画卷在你面前展开，前景、中景、远景分在不同的深度；在画里找东西、把掉出来的画片放回去、回答小问题，每一段都有语音讲解。", fontSize = c.sz(0.016f), color = LabelInk)
-        Text("怎么玩：看着画，用手指捏一下要找的东西；画片捏住不放，拖回墙上的空白处再松手。卷一 6 段、卷二 4 段，每段没有失误得三星。", fontSize = c.sz(0.014f), color = LabelInk)
+        Text("画中游", fontSize = c.sz(0.036f), color = TitleRed)
+        Text("走进两幅宋代名画：卷一《清明上河图》，卷二《千里江山图》。画卷在你面前展开，前景、中景、远景分在不同的深度；在画里找东西、把掉出来的画片放回去、回答小问题，每一段都有语音讲解。", fontSize = c.sz(0.016f), color = Ink)
+        Text("怎么玩：看着画，用手指捏一下要找的东西；画片捏住不放，拖回墙上的空白处再松手。卷一 6 段、卷二 4 段，每段没有失误得三星。", fontSize = c.sz(0.014f), color = InkSoft)
         Row(horizontalArrangement = Arrangement.spacedBy(c.m(0.01f)), verticalAlignment = Alignment.CenterVertically) {
             CallToAction(c, "展开长卷 →") { Game.toHome() }
-            Pill(c, if (Game.speaking) "停止讲解" else "听开场白", Brass) { if (Game.speaking) Game.stopVoice() else Game.speak("intro") }
+            Pill(c, if (Game.speaking) "停止讲解" else "听开场白", SealRed) { if (Game.speaking) Game.stopVoice() else Game.speak("intro") }
         }
     }
 }
@@ -169,7 +178,9 @@ fun TaskPanel(c: PhysicalLengthConverter) {
         Text("${if (s.scroll == 0) "卷一" else "卷二"} · 第 ${s.number} 段 / 共 $total 段　${s.title}", fontSize = c.sz(0.019f), color = SealRed)
         Text(s.intro, fontSize = c.sz(0.0135f), color = InkSoft)
         val t = visit.task
-        if (t == null) {
+        if (Game.hasWorld(s) && !Game.inside && t != null) {
+            Text("画里的景物正在桌上铺开……", fontSize = c.sz(0.016f), color = Ink)
+        } else if (t == null) {
             Text("这一段游完了！", fontSize = c.sz(0.018f), color = Ink)
         } else {
             Text("任务 ${visit.at + 1} / ${s.tasks.size}：${t.say}", fontSize = c.sz(0.016f), color = Ink)
@@ -182,7 +193,9 @@ fun TaskPanel(c: PhysicalLengthConverter) {
                 else -> Unit
             }
         }
-        Game.lastDone?.let { Text(it, fontSize = c.sz(0.0145f), color = Color(0xFF2E5E3A)) }
+        Game.lastDone?.let { Text(it, fontSize = c.sz(0.0145f), color = Green) }
+        // v0.3: the miniature on the table is where the tasks are; 「走进画里」 stands the player inside at life size.
+        if (Game.hasWorld(s) && Game.inside) Pill(c, if (Game.full) "回到小景" else "走进画里 →", SealRed) { Game.walkIn() }
         Row(horizontalArrangement = Arrangement.spacedBy(c.m(0.006f)), verticalAlignment = Alignment.CenterVertically) {
             Pill(c, if (Game.speaking) "停止讲解" else "听讲解", SealRed) { Game.toggleVoice() }
             Pill(c, "提示（扣星）", InkSoft) { Game.hint() }
@@ -199,8 +212,8 @@ fun ResultPanel(c: PhysicalLengthConverter) {
     val visit = Game.visit ?: return
     val next = Game.progress.next()
     Paper(c, 0.52f, 0.25f) {
-        Text("${s.title}　${stars(visit.stars())}", fontSize = c.sz(0.03f), color = Color(0xFFE8564A))
-        Text("失误 ${visit.misses} 次" + (if (visit.hints > 0) "（含提示 ${visit.hints} 次）" else "") + "。三星：一次也不失误、不用提示。", fontSize = c.sz(0.014f), color = LabelInk)
+        Text("${s.title}　${stars(visit.stars())}", fontSize = c.sz(0.03f), color = TitleRed)
+        Text("失误 ${visit.misses} 次" + (if (visit.hints > 0) "（含提示 ${visit.hints} 次）" else "") + "。三星：一次也不失误、不用提示。", fontSize = c.sz(0.014f), color = Ink)
         val t = Game.trophies
         if (t > Game.trophiesBefore) Text(
             when (t) {
@@ -208,12 +221,15 @@ fun ResultPanel(c: PhysicalLengthConverter) {
                 2 -> "得到银印「览」！两幅名画都游完了。"
                 else -> "得到金印「珍」！每一段都是三星：上元夜的虹桥灯会为你开放（长卷面板上）。"
             },
-            fontSize = c.sz(0.016f), color = Brass,
+            fontSize = c.sz(0.016f), color = GoldInk,
         )
+        // v0.3.2 (device 2026-11-18: both tasks done on the miniature, the result came up with no way left into the
+        // painting): the walk in is here too.
+        if (Game.hasWorld(s) && Game.inside) Pill(c, if (Game.full) "回到小景" else "走进画里 →（游完了也可以进去看看）", SealRed) { Game.walkIn() }
         Row(horizontalArrangement = Arrangement.spacedBy(c.m(0.01f)), verticalAlignment = Alignment.CenterVertically) {
             if (next != null) CallToAction(c, "下一段：${next.title} →") { Game.open(next) } else CallToAction(c, "回到长卷 →") { Game.toHome() }
-            Pill(c, "再游一次", Brass) { Game.again() }
-            if (next != null) Pill(c, "回到长卷", Dim) { Game.toHome() }
+            Pill(c, "再游一次", SealRed) { Game.again() }
+            if (next != null) Pill(c, "回到长卷", InkSoft) { Game.toHome() }
         }
     }
 }

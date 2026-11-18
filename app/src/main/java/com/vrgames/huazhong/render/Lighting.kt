@@ -31,7 +31,27 @@ class Lighting {
         tex?.let { source.components.set(ImageBasedLightComponent(ImageBasedLightSource.Single(it), 9f)) }
     }
 
-    /** Lights every model under [e]. */
+    private val cache = HashMap<String, TextureResource?>()
+    var current: String? = null; private set
+
+    /**
+     * v0.3: a walk-in world's own light, made from its panorama (tools/pano_ibl.py + cmgen): the sky of 汴京 or the
+     * green hills lights the models, from above, in the scene's own colour, instead of the warm room of 钟表店.
+     * Loads off the main thread; [applyWorld] then sets it (main thread).
+     */
+    fun loadWorld(name: String) {
+        if (name in cache) return
+        cache[name] = runCatching {
+            TextureResource.load("textures/ibl_$name.ktx", LoadType.FROM_ASSETS, TextureCreateOption().apply { textureEncoding = TextureEncoding.LINEAR }).shared()
+        }.onFailure { android.util.Log.w("HuaLight", "ibl $name: ${it.message}") }.getOrNull()
+    }
+
+    fun applyWorld(name: String, intensity: Float) {
+        val t = cache[name] ?: tex ?: return
+        source.components.set(ImageBasedLightComponent(ImageBasedLightSource.Single(t), intensity))
+        current = name
+    }
+
     /**
      * Lights [e] and what hangs under it by the room's image, except [skip] (and what hangs under those): the panels.
      * Given the receiver (with environment lighting 0), a panel drew nothing, only its frame showed (device

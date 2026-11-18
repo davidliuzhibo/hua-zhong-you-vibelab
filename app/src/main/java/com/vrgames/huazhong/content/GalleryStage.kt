@@ -38,6 +38,7 @@ import com.pico.spatial.ui.foundation.gesture.detectSpatialTapGesture
 import com.pico.spatial.ui.platform.LengthUnit
 import com.pico.spatial.ui.platform.LocalPhysicalLengthConverter
 import com.vrgames.huazhong.core.Scrolls
+import com.vrgames.huazhong.core.Task
 import com.vrgames.huazhong.core.Vec3
 import com.vrgames.huazhong.game.AutoPilot
 import com.vrgames.huazhong.game.Game
@@ -74,6 +75,12 @@ fun GalleryStage() {
     val panels = remember { HashMap<String, Entity>() }
     val drag = remember { DragState() }
     val strips = remember { HashMap<String, TextureResource>() }
+    /** The painted rooms round the gallery (v0.2): the study, and the painting academy round the pigment bench. */
+    val rooms = remember { HashMap<String, TextureResource>() }
+    var worldView by remember { mutableStateOf<com.vrgames.huazhong.render.WorldView?>(null) }
+    val lightingRef = remember { arrayOfNulls<Lighting>(1) }
+    // The walk-in worlds' own light (v0.3), apart from the gallery's room light.
+    val worldLight = remember { Lighting() }
     val appVersion = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
 
     val letGo: (String) -> Unit = { why ->
@@ -83,7 +90,7 @@ fun GalleryStage() {
             Log.i(INPUT_TAG, "let go $g ($why)")
             val v = view
             when {
-                g == "piece" -> Game.pieceLetGo()
+                g == "piece" || g == "wpiece" -> Game.pieceLetGo()
                 g.startsWith("dish:") && v != null -> {
                     // Over a band of the little mountain: paint it; anywhere else, the dish goes back.
                     val at = v.gripAt(g)
@@ -114,8 +121,8 @@ fun GalleryStage() {
         }
         val observer = androidx.lifecycle.LifecycleEventObserver { _, e ->
             when (e) {
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> music.resume()
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> { music.pause(); Game.stopVoice() }
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> { music.resume(); Game.pauseAmbient(false) }
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> { music.pause(); Game.stopVoice(); Game.pauseAmbient(true) }
                 androidx.lifecycle.Lifecycle.Event.ON_STOP -> runCatching { head.stop() }
                 androidx.lifecycle.Lifecycle.Event.ON_START -> runCatching { head.start() }
                 else -> Unit
@@ -139,6 +146,18 @@ fun GalleryStage() {
     LaunchedEffect(Game.wallVersion, view) {
         val v = view ?: return@LaunchedEffect
         drag.grip = null
+        // The room round it: the painting academy at the pigment bench, the study everywhere else.
+        val room = if (Game.section?.bench == true) com.vrgames.huazhong.core.Worlds.STUDIO else com.vrgames.huazhong.core.Worlds.HALL
+        val rt = rooms[room] ?: withContext(Dispatchers.IO) {
+            runCatching { context.assets.open("scenes/pano_$room.jpg").use { android.graphics.BitmapFactory.decodeStream(it) } }.getOrNull()
+        }?.let { TextureResource.create(it).shared() }?.also { rooms[room] = it }
+        // v0.3: and its sharp horizon band (two halves), as in the walk-in worlds.
+        val bands = (0..1).map { h ->
+            rooms["$room$h"] ?: withContext(Dispatchers.IO) {
+                runCatching { context.assets.open("scenes/band_${room}_${if (h == 0) "a" else "b"}.jpg").use { android.graphics.BitmapFactory.decodeStream(it) } }.getOrNull()
+            }?.let { TextureResource.create(it).shared() }?.also { rooms["$room$h"] = it }
+        }
+        if (rt != null) v.setBackdrop(room, rt, bands.filterNotNull().takeIf { it.size == 2 })
         when (Game.phase) {
             Game.Phase.HOME, Game.Phase.CARD -> {
                 v.clearWall()
@@ -167,12 +186,49 @@ fun GalleryStage() {
                         return@LaunchedEffect
                     }
                     if (Game.section !== s) return@LaunchedEffect
-                    v.showSection(s, t)
+                    v.showSection(s, t, false)
                     v.lanternNight(Game.nightOn)
                 }
                 Log.i(TAG, "wall ready ${s.id}")
                 Game.wallReady()
             }
+        }
+    }
+    // In and out of the painting (入画): the world is built for the section, shown, and the tasks begin.
+    LaunchedEffect(Game.worldVersion, worldView) {
+        val w = worldView ?: return@LaunchedEffect
+        val v = view ?: return@LaunchedEffect
+        drag.grip = null
+        val s = Game.section
+        if (Game.inside && s != null) {
+            val world = com.vrgames.huazhong.core.Worlds.of(s.id) ?: return@LaunchedEffect
+            if (w.world !== world || w.night != Game.nightOn || !w.built) {
+                w.eyeHeight = seat.eyeY
+                val lightName = if (Game.nightOn && world.id == "qm3") "qm3n" else world.pano
+                withContext(Dispatchers.IO) { worldLight.loadWorld(lightName) }
+                worldLight.applyWorld(lightName, WORLD_LIGHT)
+                w.build(world, Game.nightOn)
+                worldLight.receive(w.root)
+                worldLight.receive(w.near)
+            }
+            if (!Game.inside || Game.section !== s) return@LaunchedEffect
+            // v0.3: the miniature on the table (the gallery stays round it), or life size (the gallery put away). The
+            // world's sky is loaded on the first walk in.
+            if (Game.full) w.loadSky()
+            if (!Game.inside || Game.section !== s) return@LaunchedEffect
+            w.place(Game.full, seat.eyeY)
+            sunRef?.let { it.components.set(DirectionalLightComponent(Color(0xFFFFEBD0).toColor4(), 700f, !Game.full)) }
+            v.inside(Game.full)
+            // show() re-applies what each mode hides (hiding under a hidden root did not hold).
+            w.show(true)
+            Game.worldReady()
+            Game.walkedIn()
+            // The walkers' legs: their walk cycles come in now, a model at a time (not during the build: ANR).
+            w.loadWalks()
+        } else {
+            w.show(false)
+            w.clear()
+            v.inside(false)
         }
     }
     LaunchedEffect(Game.debugView, view) {
@@ -194,6 +250,9 @@ fun GalleryStage() {
         Modifier
             .pointerInput(0) {
                 detectSpatialTapGesture(context, TargetEntity.any()) { value ->
+                    // Inside a painting its own things first (the spot to find, everything else, the fallen piece).
+                    val wid = if (Game.inside) worldView?.hitOf(value.targetEntity) else null
+                    if (wid != null) { main.post { tapWorld(wid) }; return@detectSpatialTapGesture }
                     val id = view?.hitOf(value.targetEntity) ?: return@detectSpatialTapGesture
                     main.post { tap(id) }
                 }
@@ -206,6 +265,12 @@ fun GalleryStage() {
                     onDragStart = { _, value ->
                         val v = view ?: return@detectSpatialDragGesture
                         drag.last = SystemClock.uptimeMillis()
+                        if (Game.inside && worldView?.hitOf(value.targetEntity) == "piece" && Game.phase == Game.Phase.IN) {
+                            drag.grip = "wpiece"
+                            drag.off = Vec3.ZERO
+                            main.post { Game.sound?.play(Sfx.PICK) }
+                            return@detectSpatialDragGesture
+                        }
                         val id = v.hitOf(value.targetEntity) ?: return@detectSpatialDragGesture
                         Log.i(INPUT_TAG, "drag start $id")
                         if (Game.phase != Game.Phase.IN) return@detectSpatialDragGesture
@@ -245,16 +310,25 @@ fun GalleryStage() {
         update = { _, attachments -> view?.let { attach(it, attachments, panels) } },
         initial = { content, attachments ->
             val sun = Entity().apply {
-                components.set(DirectionalLightComponent(Color(0xFFFFEBD0).toColor4(), 700f, false))
+                // v0.3: casting shadows, so the miniature's houses, trees and walkers stand on their board. v0.3.1: only in
+                // the miniature (light models there); at life size the shadow pass over the full models cost too much.
+                components.set(DirectionalLightComponent(Color(0xFFFFEBD0).toColor4(), 700f, true))
+                sunRef = this
                 components[TransformComponent::class.java]?.setEulerAngles(EulerAngles(-50f, 20f, 0f))
             }
             content.addEntity(sun)
             val lighting = Lighting()
             content.addEntity(lighting.source)
+            content.addEntity(worldLight.source)
             withContext(Dispatchers.IO) { lighting.load() }
             lighting.apply()
             for (name in PANEL_FRAMES.values.toSet()) runCatching { Entity.loadSuspend("asset://panels/$name.glb") }.onSuccess { frames[name] = it }
             val v = GalleryView()
+            lightingRef[0] = lighting
+            val wv = com.vrgames.huazhong.render.WorldView(context, com.vrgames.huazhong.render.WorldView.loadSizes(context))
+            v.root.addChild(wv.root)
+            v.root.addChild(wv.near)
+            Game.world = wv
             runCatching { Entity.loadSuspend("asset://models/mortar.glb") }.onSuccess { v.useMortar(it) }.onFailure { Log.i(TAG, "mortar: ${it.message}") }
             seat.root = v.root
             content.addEntity(v.root)
@@ -265,6 +339,7 @@ fun GalleryStage() {
             Game.sound = Sound(v.root).also { it.load() }
             v.trophies(Game.trophies)
             view = v
+            worldView = wv
             AutoPilot.ready()
             subscription[0] = content.subscribe(SceneEvents.Update::class.java) { e ->
                 val dt = e.deltaTime.toDouble().coerceIn(0.0, 0.1)
@@ -273,7 +348,10 @@ fun GalleryStage() {
                 val pose = runCatching { if (head.state == DataProvider.State.STARTED) head.latestData?.hmdPose else null }.getOrNull()
                 if (seat.frame(pose?.position, pose?.rotation, dt)) {
                     v.eyeHeight = seat.eyeY
+                    wv.eyeHeight = seat.eyeY
+                    wv.root.setPos(Vector3(0f, -seat.eyeY, 0f))
                     v.floor()
+                    v.inside(Game.inside)
                     lighting.receive(v.root, panels.values.toSet())
                     v.root.enabled = true
                     // The panels were hung on the gallery while it was still hidden (until tracking settles), and the
@@ -291,6 +369,10 @@ fun GalleryStage() {
                 }
                 if (drag.grip != null && SystemClock.uptimeMillis() - drag.last > 2500) main.post { letGo("watchdog") }
                 v.frame(dt)
+                // Pinch boxes in the world only while a task there needs them (v0.3.3).
+                val t = Game.visit?.task
+                wv.setPickable(Game.phase == Game.Phase.IN && (t is Task.Find || t is Task.Restore))
+                wv.frame(dt)
             }
         },
     )
@@ -302,15 +384,33 @@ private fun tap(id: String) {
     when {
         id.startsWith("home:") -> if (Game.phase == Game.Phase.HOME) Scrolls.ALL.firstOrNull { it.id == id.removePrefix("home:") }?.let { Game.open(it) }
         id == "spot" -> Game.pinchWall(true)
-        id == "wall" -> Game.pinchWall(false)
+        // With the miniature on the table the painting on the wall is only to look at (v0.3).
+        id == "wall" -> if (!Game.inside) Game.pinchWall(false)
         id == "piece" -> Game.say("捏住画片不放，拖到墙上那块空白的位置再松手。")
         id == "pestle" || id == "stick" -> Game.say("捏住它不放，在碗里来回拖动。")
         id.startsWith("dish:") -> Game.say("捏住这碟颜料不放，拖到小山上要画的那一层再松手。")
     }
 }
 
+/** A quick pinch inside a painting. */
+private fun tapWorld(id: String) {
+    Log.i(INPUT_TAG, "tap world $id")
+    when (id) {
+        "spot" -> Game.pinchWall(true)
+        "scene" -> Game.pinchWall(false)
+        "piece" -> Game.say(if (Game.full) "捏住小模型不放，移到远处发光的位置上（从你眼前看过去对齐），再松手。" else "捏住小模型不放，放到桌上小景里发光的位置，再松手。")
+    }
+}
+
 /** The held thing moved by [d] (root frame). */
 private fun dragBy(g: String, d: Vec3, drag: DragState) {
+    if (g == "wpiece") {
+        // The world's root sits at the feet: the same axes as the gallery's.
+        val w = Game.world ?: return
+        val p = w.piecePos() ?: return
+        w.movePiece(p + d * if (Game.full) 1.4 else 1.0)
+        return
+    }
     val v = Game.view ?: return
     if (g == "piece") {
         val p = v.piecePos() ?: return
@@ -333,10 +433,11 @@ private class DragState {
 }
 
 /** Whether panel [id] is shown now. */
-private fun panelOn(id: String): Boolean = when (id) {
+private fun panelOn(id: String): Boolean = !Game.debugClean && when (id) {
     PANEL_CARD -> Game.phase == Game.Phase.CARD
     PANEL_HOME -> Game.phase == Game.Phase.HOME
-    PANEL_TASK -> Game.phase == Game.Phase.IN
+    // v0.3.2 (device 2026-11-18): after the result the task card stays on the left, with its 「走进画里」.
+    PANEL_TASK -> Game.phase == Game.Phase.IN || (Game.phase == Game.Phase.RESULT && Game.inside)
     PANEL_RESULT -> Game.phase == Game.Phase.RESULT
     PANEL_NOTE -> Game.note != null
     else -> true
@@ -351,6 +452,8 @@ private fun showPanels(panels: HashMap<String, Entity>) {
 
 private val PANEL_FRAMES = mapOf(PANEL_CARD to "panel_title", PANEL_RESULT to "panel_title", PANEL_HOME to "panel_page", PANEL_TASK to "panel_scroll")
 private val frames = HashMap<String, Entity>()
+/** The sun: its shadows only in the miniature (v0.3.1). */
+private var sunRef: Entity? = null
 
 private fun attach(v: GalleryView, a: SpatialViewAttachments, panels: HashMap<String, Entity>) {
     fun put(id: String, pos: Vector3, pitch: Float, yaw: Float = 0f) {
@@ -372,8 +475,9 @@ private fun attach(v: GalleryView, a: SpatialViewAttachments, panels: HashMap<St
     put(PANEL_CARD, Vector3(0f, -0.26f, -0.85f), -12f)
     put(PANEL_RESULT, Vector3(0f, -0.24f, -0.82f), -12f)
     put(PANEL_HOME, Vector3(0f, -0.5f, -0.78f), -30f)
-    put(PANEL_TASK, Vector3(-0.6f, -0.26f, -0.55f), -18f, 45f)
-    put(PANEL_NOTE, Vector3(0.58f, -0.24f, -0.58f), -15f, -45f)
+    // v0.3: a little further out to the sides, clear of the miniature's table (1.1 m wide, from 0.42 m ahead).
+    put(PANEL_TASK, Vector3(-0.74f, -0.22f, -0.5f), -18f, 50f)
+    put(PANEL_NOTE, Vector3(0.72f, -0.2f, -0.52f), -15f, -50f)
     put(PANEL_MENU, Vector3(-0.6f, -0.58f, -0.4f), -35f, 50f)
 }
 
@@ -449,3 +553,6 @@ private const val DISH_NEAR = 0.12
 private const val TAG = "GalleryStage"
 /** Every pinch the stage sees (kept in release builds, for on-device reports). */
 private const val INPUT_TAG = "GalleryInput"
+
+/** Strength of a walk-in world's panorama light (钓鱼 uses 9 with the same gain). */
+private const val WORLD_LIGHT = 9f

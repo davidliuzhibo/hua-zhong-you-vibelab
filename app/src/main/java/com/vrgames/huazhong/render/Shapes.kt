@@ -84,3 +84,15 @@ fun quatFromY(dir: Vec3): Quat {
     val s = sin(half) / len
     return Quat((ax * s).toFloat(), 0f, (az * s).toFloat(), cos(half).toFloat())
 }
+
+
+/**
+ * A mesh's bounds from its corners. The SDK's BoundingBox(a, b) is (centre, half extent), not (min, max): passed the
+ * corners, the long scrolls' box sat off to the front left and the scrolls vanished as one turned right (device
+ * 2026-11-18, v0.3.3). Every custom mesh goes through this.
+ */
+fun bbox(min: com.pico.spatial.core.math.Vector3, max: com.pico.spatial.core.math.Vector3) =
+    com.pico.spatial.core.ecs.BoundingBox(
+        com.pico.spatial.core.math.Vector3((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2),
+        com.pico.spatial.core.math.Vector3((max.x - min.x) / 2, (max.y - min.y) / 2, (max.z - min.z) / 2),
+    )
