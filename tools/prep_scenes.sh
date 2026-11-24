@@ -1,5 +1,5 @@
 #!/bin/bash
-# The walk-in worlds' models (v0.2): each Seed3D GLB shrunk for the headset at its real size (scene_models.tsv),
+# Superseded in v0.4.0 by tools/bake_scenes.sh (baked near/far versions). The walk-in worlds' models (v0.2): each Seed3D GLB shrunk for the headset at its real size (scene_models.tsv),
 # given a glow of its own colours (full immersion, one light), and measured into assets/scenes/sizes.txt.
 # Skips models already prepared (FORCE=1 redoes them all). Run from the repository root.
 cd /home/workspace/orca/projects/VRGames_Claude
@@ -12,7 +12,7 @@ WORK=assets_lab/huazhong/prep
 OUT=Pico_Vibe_Lab/HuaZhongYou/app/app/src/main/assets/scenes
 mkdir -p $WORK $OUT
 touch $OUT/sizes.txt
-grep -v '^#' Pico_Vibe_Lab/HuaZhongYou/tools/scene_models.tsv | while IFS=$'\t' read -r n size axis faces tex yaw glow; do
+grep -v '^#' Pico_Vibe_Lab/HuaZhongYou/tools/scene_models_v033.tsv | while IFS=$'\t' read -r n size axis faces tex yaw glow; do
   [ -z "$n" ] && continue
   [ -f "$SRC/$n.glb" ] || continue
   [ -z "$FORCE" ] && [ -f "$OUT/$n.glb" ] && continue

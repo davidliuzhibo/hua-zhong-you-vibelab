@@ -52,6 +52,8 @@ object Game {
     var sound: Sound? = null
     var view: GalleryView? = null
     var world: com.vrgames.huazhong.render.WorldView? = null
+    /** The menu's 「退出」 (set by the stage): closes the app's task. */
+    var quit: (() -> Unit)? = null
     /** Inside the painting (入画, v0.2): the section's world is round the player and its tasks are done there. */
     var inside by mutableStateOf(false); private set
     /**

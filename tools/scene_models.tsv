@@ -1,50 +1,49 @@
-# name	size_m	axis	faces	tex	yaw	glow
-qm_tavern	11	h	80000	2048	0	0.12
-qm_shop	6	h	50000	2048	0	0.12
-qm_shop2	8	h	50000	2048	0	0.12
-qm_cailou	7	h	50000	2048	0	0.12
-qm_gate	16	h	80000	2048	0	0.12
-qm_bridge	26	max	80000	2048	0	0.12
-qm_warehouse	7	h	50000	2048	0	0.12
-qm_farm	5	h	50000	2048	0	0.12
-qm_house	6	h	50000	2048	0	0.12
-qm_stall	3.2	h	30000	2048	0	0.12
-qm_teashed	3.5	h	30000	2048	0	0.12
-qm_cargo	18	max	80000	2048	0	0.12
-qm_bigboat	16	max	80000	2048	0	0.12
-qm_mast	12	h	8000	1024	0	0.12
-qm_canopy	7	max	30000	2048	0	0.12
-qm_rowboat	5	max	30000	2048	0	0.12
-qm_oxcart	5	max	30000	2048	0	0.12
-qm_sedan	2.2	h	30000	2048	0	0.12
-qm_barrow	1.7	h	30000	2048	0	0.12
-qm_donkey	1.6	h	25000	2048	0	0.12
-qm_camel	2.4	h	25000	2048	0	0.12
-qm_horse	2.5	h	25000	2048	0	0.12
-p_porter	1.7	h	25000	2048	0	0.12
-p_boatman	1.75	h	25000	2048	0	0.12
-p_merchant	1.75	h	25000	2048	0	0.12
-p_scholar	1.75	h	25000	2048	0	0.12
-p_vendor	1.7	h	25000	2048	0	0.12
-p_woman	1.65	h	25000	2048	0	0.12
-p_child	1.1	h	25000	2048	-90	0.12
-p_driver	1.7	h	25000	2048	0	0.12
-p_story	1.7	h	25000	2048	0	0.12
-p_guard	1.85	h	25000	2048	-90	0.12
-t_willow	9	h	45000	2048	0	0.12
-t_elm	11	h	35000	2048	0	0.12
-t_peach	5	h	20000	2048	0	0.12
-lantern_red	0.6	h	2000	256	0	0.9
-lantern_sky	0.7	h	2000	256	0	1.2
-ql_mount1	40	h	40000	2048	0	0.12
-ql_mount2	30	h	40000	2048	0	0.12
-ql_hill	10	h	50000	2048	0	0.12
-ql_pavilion	7	h	50000	2048	0	0.12
-ql_longbridge	40	max	80000	2048	0	0.12
-ql_cottage	6	h	50000	2048	0	0.12
-ql_mill	7	h	50000	2048	0	0.12
-ql_fishboat	5	max	30000	2048	0	0.12
-ql_pine	12	h	20000	2048	0	0.12
-ql_traveler	2.3	h	25000	2048	0	0.12
-st_screen	2.2	h	30000	2048	0	0.12
-st_shelf	2.4	h	30000	2048	0	0.12
+# v0.4.0 bake targets (tools/bake_scenes.sh → tools/blender/bake_scene.py; 0.3.3's list: scene_models_v033.tsv)
+# name	size_m	axis	yaw	glow	near_faces	far_faces	walk_faces	near_px	far_px	tone	extra
+qm_tavern	11	h	0	0.12	30000	13500	0	2048	1024	-	0
+qm_shop	6	h	0	0.12	22000	9900	0	2048	1024	-	0
+qm_shop2	8	h	0	0.12	22000	22000	0	2048	1024	-	0
+qm_cailou	7	h	0	0.12	22000	9900	0	2048	1024	-	0
+qm_gate	16	h	0	0.12	30000	13500	0	2048	1024	-	0
+qm_bridge	26	max	0	0.12	30000	13500	0	2048	1024	-	0
+qm_warehouse	7	h	0	0.12	22000	9900	0	2048	1024	-	0
+qm_farm	5	h	0	0.12	20000	9000	0	2048	1024	-	0
+qm_house	6	h	0	0.12	22000	9900	0	2048	1024	-	0
+qm_stall	3.2	h	0	0.12	12000	4000	0	2048	1024	-	0
+qm_teashed	3.5	h	0	0.12	12000	4000	0	2048	1024	-	0
+qm_cargo	18	max	0	0.12	24000	10800	0	2048	1024	-	0
+qm_bigboat	16	max	0	0.12	24000	10800	0	2048	1024	-	0
+qm_mast	12	h	0	0.12	4000	1800	0	2048	1024	-	0
+qm_canopy	7	max	0	0.12	15000	6750	0	2048	1024	-	0
+qm_rowboat	5	max	0	0.12	12000	5400	0	2048	1024	-	0
+qm_oxcart	5	max	0	0.12	15000	6750	7000	2048	1024	-	0
+qm_sedan	2.2	h	0	0.12	12000	4000	7000	2048	1024	-	0
+qm_barrow	1.7	h	0	0.12	12000	4000	6000	2048	1024	-	0
+qm_donkey	1.6	h	0	0.12	15000	5000	7000	2048	1024	-	0
+qm_camel	2.4	h	0	0.12	15000	5000	7000	2048	1024	-	0
+qm_horse	2.5	h	0	0.12	15000	5000	7000	2048	1024	-	0
+p_porter	1.7	h	0	0.12	15000	3000	6000	2048	1024	-	0
+p_boatman	1.75	h	0	0.12	15000	3000	0	2048	1024	-	0
+p_merchant	1.75	h	0	0.12	15000	3000	6000	2048	1024	-	0
+p_scholar	1.75	h	0	0.12	26000	3000	6000	2048	1024	-	0
+p_vendor	1.7	h	0	0.12	15000	3000	6000	2048	1024	-	0
+p_woman	1.65	h	0	0.12	15000	3000	6000	2048	1024	-	0
+p_child	1.1	h	-90	0.12	15000	3000	6000	2048	1024	-	0
+p_driver	1.7	h	0	0.12	15000	3000	6000	2048	1024	-	0
+p_story	1.7	h	0	0.12	15000	3000	0	2048	1024	-	0
+p_guard	1.85	h	-90	0.12	15000	3000	0	2048	1024	-	0
+t_willow	9	h	0	0.12	20000	6700	0	2048	1024	green	0
+t_elm	11	h	0	0.12	18000	9000	0	2048	1024	green	0
+t_peach	5	h	0	0.12	12000	4000	0	2048	1024	-	22000
+lantern_red	0.6	h	0	0.9	2000	1000	0	512	256	-	0
+lantern_sky	0.7	h	0	1.2	2000	1000	0	512	256	-	0
+ql_mount1	40	h	0	0.12	15000	4500	0	2048	1024	-	0
+ql_mount2	30	h	0	0.12	15000	4500	0	2048	1024	-	0
+ql_hill	10	h	0	0.12	10000	4000	0	2048	1024	-	0
+ql_pavilion	7	h	0	0.12	22000	9900	0	2048	1024	-	0
+ql_longbridge	40	max	0	0.12	30000	13500	0	2048	1024	-	0
+ql_cottage	6	h	0	0.12	20000	9000	0	2048	1024	-	0
+ql_mill	7	h	0	0.12	20000	9000	0	2048	1024	-	0
+ql_fishboat	5	max	0	0.12	12000	5400	0	2048	1024	-	5300
+ql_pine	12	h	0	0.12	12000	4000	0	2048	1024	-	0
+ql_traveler	2.3	h	0	0.12	15000	5000	7000	2048	1024	-	0

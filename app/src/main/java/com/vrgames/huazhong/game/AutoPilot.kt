@@ -19,7 +19,7 @@ import com.vrgames.huazhong.core.Task
  *
  * cmd: home · full [--es id off] (走进画里 / 回到小景) · open --es id <section> · solve (the open section, every task right) · walk (every
  * section of both scrolls in turn) · grant --es id <stars> · night · view --es id
- * "x,y,z,yaw,scale,pitch"|reset · reset · stop
+ * "x,y,z,yaw,scale,pitch"|reset · reset · stop · water --es id live|baked · perf (HuaPerf: what the world draws now) · quit (the menu's 退出)
  */
 object AutoPilot {
     const val TAG = "HuaTest"
@@ -50,6 +50,10 @@ object AutoPilot {
             "full" -> Game.walkIn(id != "off")
             "view" -> Game.debugView = id?.takeIf { it != "reset" }
             "clean" -> Game.debugClean = id != "off"
+            // v0.4.0: the water's waves computed live each update (timed) instead of its baked frames; HuaPerf counts now.
+            "water" -> { Game.world?.water?.live = id == "live"; Log.i(TAG, "water ${if (id == "live") "live" else "baked"}") }
+            "perf" -> Game.world?.logPerf("asked")
+            "quit" -> Game.quit?.invoke()
             "reset" -> { main.removeCallbacksAndMessages(null); walking = false; Game.restart() }
             "stop" -> { main.removeCallbacksAndMessages(null); walking = false }
             else -> Log.w(TAG, "unknown command $cmd")

@@ -35,6 +35,9 @@ import com.pico.spatial.core.math.Vector4
 import com.vrgames.huazhong.core.Mover
 import com.vrgames.huazhong.core.Vec3
 import com.vrgames.huazhong.core.World
+import com.vrgames.huazhong.core.Perf
+import com.vrgames.huazhong.core.Waves
+import com.pico.spatial.core.ecs.ModelComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
@@ -77,6 +80,12 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
     private val sceneFiles: Set<String> by lazy { runCatching { context.assets.list("scenes")?.toSet() }.getOrNull() ?: emptySet() }
     private val flips = ArrayList<Flip>()
     private val owned = ArrayList<TextureResource>()
+    /** v0.4.0: triangles of every mesh drawn (models from assets scenes/tris.txt, generated meshes as made), for HuaPerf. */
+    private val meshTris = HashMap<MeshResource, Int>()
+    /** v0.4.0: the rivers and lakes as moving surfaces, their shores and the boats' wakes. */
+    val water = WaterView(owned, meshTris)
+    private val fileTris: Map<String, Int> by lazy { runCatching { Perf.parse(context.assets.open("scenes/tris.txt").bufferedReader().readLines()) }.getOrDefault(emptyMap()) }
+    private val oldTris: Map<String, Int> by lazy { runCatching { Perf.parse(context.assets.open("scenes/tris_v033.txt").bufferedReader().readLines()) }.getOrDefault(emptyMap()) }
     private var mast: Entity? = null
     private var mastBoat: Entity? = null
     private var clock = 0.0
@@ -164,7 +173,8 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
             fullRoot.addChild(flat(s.x0, s.z0, s.x1, s.z1, 0.012f, m, "strip", tile = GROUND_TILE[g] ?: 4f))
             clipped(s.x0, s.z0, s.x1, s.z1)?.let { c -> miniRoot.addChild(flat(c[0], c[1], c[2], c[3], 0.012f, silk(groundMat(g, s.color)), "mstrip", tile = GROUND_TILE[g] ?: 4f)) }
         }
-        for (wt in w.water) water(wt)
+        for ((i, s) in Waves.surfaces(w, region, miniScale.toDouble(), false).withIndex()) water(w, s, i)
+        for ((i, s) in Waves.surfaces(w, region, miniScale.toDouble(), true).withIndex()) water(w, s, i)
         w.fall?.let { fall(it) }
         lap("ground+water")
         val templates = HashMap<String, Entity?>()
@@ -173,16 +183,19 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         val names0 = (w.pieces.map { it.m } + extra.map { it.m } + w.movers.map { it.m } + listOfNotNull(w.restore?.m) + if (w.mastBridgeZ != null) listOf("qm_mast") else emptyList()).distinct()
         // v0.3.1 (device 2026-11-18: 30-50 fps): every standing model has a light version (tools/blender/lo_lod.py, about a
         // quarter of the triangles, 1024 px textures), shown in the miniature and beyond [LOD_FAR] at life size.
-        val loNames = (w.pieces.map { it.m } + extra.map { it.m }).distinct().filter { "${it}_lo.glb" in loAvailable }.map { "${it}_lo" }
+        // v0.4.0: and the moving boats (their light version far off and on the miniature).
+        val loNames = (w.pieces.map { it.m } + extra.map { it.m } + w.movers.filter { it.boat }.map { it.m } + listOfNotNull(w.restore?.m)).distinct().filter { "${it}_lo.glb" in loAvailable }.map { "${it}_lo" }
         val names = names0 + loNames
         kotlinx.coroutines.coroutineScope {
             names.map { m -> m to async { runCatching { Entity.loadSuspend("asset://scenes/$m.glb") }.onFailure { Log.w(TAG, "$m: ${it.message}") }.getOrNull() } }
-                .forEach { (m, d) -> templates[m] = d.await()?.also { it.enabled = false; root.addChild(it); hidden += it } }
+                .forEach { (m, d) -> templates[m] = d.await()?.also { it.enabled = false; root.addChild(it); hidden += it; countMeshes(it, m) } }
         }
         lap("models (${names.size})")
         suspend fun inst(m: String): Entity? {
-            val tpl = templates.getOrPut(m) { lap("before $m"); runCatching { Entity.loadSuspend("asset://scenes/$m.glb") }.also { lap("load $m") }.onFailure { Log.w(TAG, "$m: ${it.message}") }.getOrNull()?.also { it.enabled = false; root.addChild(it); hidden += it } } ?: return null
-            return tpl.clone(Entity.CloneOptions(true, true))?.also { it.enabled = true }
+            val tpl = templates.getOrPut(m) { lap("before $m"); runCatching { Entity.loadSuspend("asset://scenes/$m.glb") }.also { lap("load $m") }.onFailure { Log.w(TAG, "$m: ${it.message}") }.getOrNull()?.also { it.enabled = false; root.addChild(it); hidden += it; countMeshes(it, m) } } ?: return null
+            // Recursive, sharing the material instances: the clone's model component takes the template's own mesh and
+            // materials (ModelComponent.clone), so the GPU holds each model once however many stand (checked: [shareCheck]).
+            return tpl.clone(Entity.CloneOptions(true, true))?.also { it.enabled = true; clones += tpl to it }
         }
         // v0.3: the world's own pieces, and the kit that fills it out (core/Dressing). v0.3.1: each a holder with the full
         // model and its light version, one of them shown (see [applyLod]).
@@ -203,6 +216,11 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
             val e = inst(m.m) ?: continue
             val holder = Entity().apply { addChild(e) }
             e.transform().eulerAngles = EulerAngles(0f, (FWD[m.m] ?: 0.0).toFloat(), 0f)
+            if (m.boat && "${m.m}_lo" in templates) inst("${m.m}_lo")?.let { lo ->
+                lo.transform().eulerAngles = EulerAngles(0f, (FWD[m.m] ?: 0.0).toFloat(), 0f)
+                holder.addChild(lo)
+                moverLods += MoverLod(e, lo, holder)
+            }
             box(holder, m.m, if (m.find) "spot" else "scene", 1f, turned = abs(FWD[m.m] ?: 0.0) == 90.0)
             root.addChild(holder)
             movers += m to holder
@@ -220,10 +238,31 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
                 }
             }
         }
+        // v0.4.0: a wake behind every moving boat, on the water it sails.
+        if (wakeFrames.isEmpty()) wakeFrames = WaterView.wakeBitmaps().map { TextureResource.create(it).shared().also { t -> owned += t } }
+        for ((m, holder) in movers) {
+            if (!m.boat) continue
+            val (x, z) = m.path.first()
+            val wt = w.water.firstOrNull { x >= minOf(it.x0, it.x1) - 1 && x <= maxOf(it.x0, it.x1) + 1 && z >= minOf(it.z0, it.z1) - 1 && z <= maxOf(it.z0, it.z1) + 1 } ?: w.water.firstOrNull() ?: continue
+            val lake = Waves.isLake(wt)
+            val full = (if (lake) Waves.LAKE else Waves.RIVER).amp
+            val small = Waves.mini(lake, miniScale.toDouble()).amp
+            // At the waves' mean height (open water rests at its height plus their amplitude): half under the crests, a
+            // little over the troughs, so the foam lies among the waves.
+            val top = floatArrayOf((wt.y + full + 0.01).toFloat(), (wt.y + small + 0.0005 / miniScale).toFloat())
+            val len = (sizes[m.m]?.get(0) ?: 5f).toDouble()
+            root.addChild(water.wake(m, holder, len, wakeFrames, top))
+        }
+        if (wakeFrames.isNotEmpty() && water.wakes.isNotEmpty()) flips += Flip({ t -> for (wk in water.wakes) wk.mat.setBaseColorTexture(t) }, wakeFrames, 0.14)
         if (night) night(w)
         w.restore?.let { r ->
-            val full = inst(r.m)
-            val mini = inst(r.m)
+            // v0.4.0: the piece in its place has its light version too (far off, and on the miniature); the one
+            // floating before the player (a hand-sized miniature) is the light version.
+            val hiFull = inst(r.m)
+            val loFull = if ("${r.m}_lo" in templates) inst("${r.m}_lo") else null
+            val full = hiFull?.let { h -> Entity().apply { addChild(h); loFull?.let { addChild(it) } } }
+            if (hiFull != null && loFull != null) lods += Lod(hiFull, loFull, kotlin.math.hypot(r.x, r.z))
+            val mini = (if ("${r.m}_lo" in templates) inst("${r.m}_lo") else null) ?: inst(r.m)
             if (full != null && mini != null) {
                 full.setPos(Vector3(r.x.toFloat(), r.y.toFloat(), r.z.toFloat()))
                 full.transform().eulerAngles = EulerAngles(0f, r.yaw.toFloat(), 0f)
@@ -250,6 +289,7 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         }
         lap("rest")
         miniParts()
+        shareCheck()
         built = true
         Log.i(TAG, "built ${w.id} night=$night in ${android.os.SystemClock.uptimeMillis() - t0} ms: ${w.pieces.size} pieces, ${movers.size} movers")
     }
@@ -344,11 +384,90 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
             if (l.hi.enabled == useLo) l.hi.enabled = !useLo
             if (l.lo.enabled != useLo) l.lo.enabled = useLo
         }
+        // The moving boats by where they are now.
+        for (l in moverLods) {
+            val p = l.holder.transform().position
+            val useLo = mini || kotlin.math.hypot(p.x.toDouble(), p.z.toDouble()) > LOD_FAR
+            if (l.hi.enabled == useLo) l.hi.enabled = !useLo
+            if (l.lo.enabled != useLo) l.lo.enabled = useLo
+        }
+    }
+
+    private class MoverLod(val hi: Entity, val lo: Entity, val holder: Entity)
+    private val moverLods = ArrayList<MoverLod>()
+    private var wakeFrames: List<TextureResource> = emptyList()
+    /** Each clone and the template it came from (for [shareCheck]). */
+    private val clones = ArrayList<Pair<Entity, Entity>>()
+
+    /** Records the triangles of model file [file]'s meshes (from tris.txt) under their mesh resources. */
+    private fun countMeshes(e: Entity, file: String) {
+        val t = fileTris[file] ?: return
+        fun walk(x: Entity) {
+            x.components[ModelComponent::class.java]?.mesh?.let { meshTris[it] = t }
+            x.getChildren().forEach { walk(it) }
+        }
+        walk(e)
+    }
+
+    private fun modelsOf(e: Entity, out: MutableList<ModelComponent> = ArrayList()): List<ModelComponent> {
+        e.components[ModelComponent::class.java]?.let { out += it }
+        e.getChildren().forEach { modelsOf(it, out) }
+        return out
+    }
+
+    /**
+     * v0.4.0: whether the clones really share their template's mesh and material (one copy on the GPU per model, not
+     * per instance), logged with the SDK's live resource counts.
+     */
+    private fun shareCheck() {
+        var meshSame = 0; var matSame = 0; var n = 0
+        for ((tpl, c) in clones) {
+            val a = modelsOf(tpl); val b = modelsOf(c)
+            for (i in 0 until minOf(a.size, b.size)) {
+                n++
+                if (a[i].mesh == b[i].mesh) meshSame++
+                if (a[i].materials.size > 0 && b[i].materials.size > 0 && a[i].materials[0] == b[i].materials[0]) matSame++
+            }
+        }
+        val res = runCatching {
+            val m = com.pico.spatial.core.ecs.resource.Resource::class.java.methods.first { it.name.startsWith("getCurrentResourceCollectionCount") }
+            val c = m.invoke(null) ?: error("null")
+            fun g(n: String) = c.javaClass.getMethod(n).invoke(c)
+            "active ${g("getActiveResourceCount")}, global ${g("getGlobalResourceCount")}, unowned ${g("getUnownedResourceCount")}"
+        }.getOrElse { "counts n/a (${it.javaClass.simpleName})" }
+        Log.i(WaterView.PERF, "share ${world?.id}: ${clones.size} clones of ${clones.map { it.first }.distinct().size} templates; meshes shared $meshSame/$n, materials shared $matSame/$n; resources $res")
+    }
+
+    /** What is drawn now under the world: triangles (of known meshes) and draw calls (enabled model components). */
+    fun drawn(): Perf.Count {
+        var t = 0L; var d = 0
+        fun walk(x: Entity) {
+            if (!x.enabled) return
+            x.components[ModelComponent::class.java]?.let { mc ->
+                d++
+                mc.mesh?.let { t += meshTris[it] ?: 0 }
+            }
+            x.getChildren().forEach { walk(it) }
+        }
+        if (root.enabled) walk(root)
+        if (near.enabled) walk(near)
+        return Perf.Count(t, d)
+    }
+
+    /** HuaPerf at a section's start: drawn now, and the budgets of 0.4.0 and of 0.3.3 for the same world and mode. */
+    fun logPerf(why: String) {
+        val w = world ?: return
+        val now = drawn()
+        val extra = com.vrgames.huazhong.core.Dressing.extras(w) { m -> sizes[m]?.let { it[0].toDouble() to it[2].toDouble() } }
+        val b4 = Perf.count(w, extra, region, fileTris, mini, Perf.V040) + Perf.water(w, region, miniScale.toDouble(), mini)
+        val b3 = Perf.count(w, extra, region, oldTris, mini, Perf.V033)
+        Log.i(WaterView.PERF, "section ${w.id} ${if (mini) "mini" else "full"} ($why): drawn $now; budget 0.4.0 ${b4.tris} tris / ${b4.draws} models, 0.3.3 ${b3.tris} tris / ${b3.draws} models (${"%.0f".format(100.0 * b4.tris / maxOf(1L, b3.tris))}%)")
     }
 
     private fun reapply() {
         for (e in hidden) e.enabled = false
         applyLod()
+        water.reapply()
         val full = !mini
         fullRoot.enabled = full
         miniRoot.enabled = !full
@@ -468,6 +587,13 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         movers.clear()
         hidden.clear()
         lods.clear()
+        moverLods.clear()
+        clones.clear()
+        water.clear()
+        meshTris.clear()
+        wakeFrames = emptyList()
+        shoreFrames.clear()
+        waterMats.clear()
         boxes.clear()
         pickable = true
         walked.clear()
@@ -634,22 +760,47 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         return UnlitMaterial.create(BlendingMode.OPAQUE).apply { setBaseColor(color(1f, 1f, 1f)); setBaseColorTexture(t); setCullingMode(MaterialCullingMode.NONE) }
     }
 
-    private fun water(w: com.vrgames.huazhong.core.Water) {
-        // v0.3: a lit, glossy surface that mirrors the world's own sky (its light is made from the panorama), its
-        // ripples a flip-book of normal maps running downstream; the water's colour shows looking down into it.
-        val c = w.color.toInt()
-        val frames = waterNormals
-        val mat = PhysicallyBasedMaterial.create(BlendingMode.OPAQUE).apply {
-            setBaseColor(color(((c shr 16) and 0xFF) / 255f * 0.55f, ((c shr 8) and 0xFF) / 255f * 0.6f, (c and 0xFF) / 255f * 0.62f))
-            setMetallic(0f)
-            setRoughness(0.07f)
-            setCullingMode(MaterialCullingMode.NONE)
-            frames.firstOrNull()?.let { setNormalTexture(it); setNormalScale(0.8f) }
+    /** One material per water (the world's surface and the miniature's share it): its ripples flip together. */
+    private val waterMats = HashMap<com.vrgames.huazhong.core.Water, Pair<Material, Material>>()
+    private val shoreFrames = HashMap<Int, List<TextureResource>>()
+
+    /**
+     * v0.4.0 (PICO 2026-11-23: 「水体可以考虑用网格和 shader 模拟材质与动态」): a moving surface instead of one flat quad (see
+     * [WaterView], core/Waves): its waves baked into frames played in a loop; over it the lit, glossy ripples that mirror
+     * the world's sky, as in 0.3 (their flip-book runs downstream); along the banks a pale band of shallows with a foam
+     * line lapping. A little deeper in colour than 0.3's flat water, so mid-river reads darker than the shallows.
+     */
+    private fun water(w: World, s: Waves.Surface, i: Int) {
+        val wt = s.water
+        val mini = s.box != null
+        val (mat, shoreMat) = waterMats.getOrPut(wt) {
+            val c = wt.color.toInt()
+            val r = ((c shr 16) and 0xFF) / 255f; val g = ((c shr 8) and 0xFF) / 255f; val b = (c and 0xFF) / 255f
+            val frames = waterNormals
+            val m = PhysicallyBasedMaterial.create(BlendingMode.OPAQUE).apply {
+                setBaseColor(color(r * 0.46f, g * 0.54f, b * 0.58f))
+                setMetallic(0f)
+                setRoughness(0.07f)
+                setCullingMode(MaterialCullingMode.NONE)
+                frames.firstOrNull()?.let { setNormalTexture(it); setNormalScale(0.8f) }
+            }
+            // The flow's sign: the flip-book runs forward or back along u.
+            if (frames.isNotEmpty()) flips += Flip({ m.setNormalTexture(it) }, if (wt.flow >= 0) frames else frames.reversed(), 1.2 / maxOf(abs(wt.flow), 0.1) / frames.size)
+            // The shallows: halfway from the water's colour to pale sand.
+            val shallow = (0xFF shl 24) or (ch(0.5f * r + 0.5f * 0.86f) shl 16) or (ch(0.5f * g + 0.5f * 0.84f) shl 8) or ch(0.5f * b + 0.5f * 0.68f)
+            val sf = shoreFrames.getOrPut(shallow) { WaterView.shoreBitmaps(shallow).map { TextureResource.create(it).shared().also { t -> owned += t } } }
+            val sm = UnlitMaterial.create(BlendingMode.TRANSPARENT).apply {
+                setBaseColor(color(1f, 1f, 1f, 1f))
+                setBaseColorTexture(sf[0])
+                setCullingMode(MaterialCullingMode.NONE)
+                setDepthWrite(false)
+            }
+            flips += Flip({ sm.setBaseColorTexture(it) }, sf, 0.2)
+            m to sm
         }
-        fullRoot.addChild(flat(w.x0, w.z0, w.x1, w.z1, w.y.toFloat(), mat, "water", tile = 2.5f, alongX = w.alongX))
-        clipped(w.x0, w.z0, w.x1, w.z1)?.let { c -> miniRoot.addChild(flat(c[0], c[1], c[2], c[3], w.y.toFloat(), mat, "mwater", tile = 2.5f, alongX = w.alongX)) }
-        // Flow sign: the flip-book runs forward or back along u.
-        if (frames.isNotEmpty()) flips += Flip({ mat.setNormalTexture(it) }, if (w.flow >= 0) frames else frames.reversed(), 1.2 / maxOf(abs(w.flow), 0.1) / frames.size)
+        val name = "${if (mini) "m" else ""}water${w.id}_$i"
+        val (e, _) = water.surface(name, wt, w.water, s, mat, shoreMat, mini)
+        (if (mini) miniRoot else fullRoot).addChild(e)
     }
 
     private fun fall(f: com.vrgames.huazhong.core.Fall) {
@@ -916,6 +1067,7 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         if (lodT > 1.5) { lodT = 0.0; applyLod() }
         // The fallen piece's home breathes, so it is found at a glance.
         homeRing?.let { ring -> val b = (1.0 + 0.18 * kotlin.math.sin(clock * 3.0)).toFloat(); ring.transform().setScaleVector(Vector3(homeR * 1.12f * b, homeTh * 0.5f, homeR * 1.12f * b)) }
+        water.frame(clock, dt, mini, world?.id)
         for (f in flips) {
             f.t += dt
             if (f.t >= f.every) {
@@ -1025,14 +1177,16 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
          * The cycle plays at speed / stride, so the feet keep to the ground.
          */
         val STRIDE = mapOf(
-            "p_porter" to 1.20, "p_vendor" to 0.77, "p_child" to 0.43, "p_scholar" to 0.76, "p_merchant" to 0.56, "p_woman" to 0.48,
-            "qm_horse" to 0.97, "qm_camel" to 1.07, "qm_donkey" to 0.65, "ql_traveler" to 0.62, "p_driver" to 0.85,
-            "qm_sedan" to 0.96, "qm_barrow" to 1.21, "qm_oxcart" to 0.97,
+            // From the baked walk cycles (tools/bake_scenes.sh logs each STRIDE); v0.4.1: the remade porter, scholar (new rigid
+            // boots under a still robe, a shorter step), horse.
+            "p_porter" to 0.77, "p_vendor" to 0.78, "p_child" to 0.43, "p_scholar" to 0.66, "p_merchant" to 0.56, "p_woman" to 0.48,
+            "qm_horse" to 0.97, "qm_camel" to 1.11, "qm_donkey" to 0.65, "ql_traveler" to 0.62, "p_driver" to 0.87,
+            "qm_sedan" to 0.95, "qm_barrow" to 0.97, "qm_oxcart" to 0.92,
         )
 
         /** The miniature's table (v0.3): at most this wide and deep (m), this far below the eyes, its near edge this far ahead. */
-        /** Beyond this (metres from the player) the light versions stand in at life size. */
-        const val LOD_FAR = 18.0
+        /** Beyond this (metres from the player) the light versions stand in at life size (v0.4.0: 18 → 12 m; baked, they hold up). */
+        const val LOD_FAR = 12.0
         const val MINI_W = 1.1
         const val MINI_D = 0.78
         const val MINI_BELOW_EYE = 0.45f

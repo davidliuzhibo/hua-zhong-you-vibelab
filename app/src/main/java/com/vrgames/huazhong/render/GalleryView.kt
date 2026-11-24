@@ -609,16 +609,36 @@ class GalleryView {
 
     // ---- Trophies and the lantern night ----
 
-    /** The three seals of the trophies by the strips: bronze, silver, gold as earned. */
+    /**
+     * The three seals of the trophies by the strips: bronze, silver, gold as earned.
+     * v0.4.2 (device 2026-11-24: 「那3个黑方块很奇怪」): an unearned seal was a plain dark cube with no character and no
+     * word, so it read as three black holes under the paintings. Now an unearned seal is an empty seal slot — light paper
+     * in a thin brown frame, its character faintly engraved — and each seal has its name and how to earn it under it.
+     * Moved 8 cm lower (centre 0.50 m under the eyes, was 0.42) so the seals and their words stay clear of the strip and of
+     * the sections' names (those end about 0.37 m under the eyes).
+     */
     fun trophies(level: Int) {
         trophyRoot.getChildren().forEach { it.destroy() }
-        val names = listOf("游" to color(0.72f, 0.45f, 0.25f), "览" to color(0.82f, 0.84f, 0.88f), "珍" to color(1f, 0.78f, 0.3f))
-        for ((k, pair) in names.withIndex()) {
-            val (ch, c) = pair
+        val seals = listOf(
+            Triple("游", color(0.72f, 0.45f, 0.25f), "铜印·游完卷一"),
+            Triple("览", color(0.82f, 0.84f, 0.88f), "银印·两卷游完"),
+            Triple("珍", color(1f, 0.78f, 0.3f), "金印·每段三星"),
+        )
+        for ((k, seal) in seals.withIndex()) {
+            val (ch, c, how) = seal
+            val got = k < level
             val e = Entity()
-            onWall(e, 1.9, Math.toRadians(62.0 + k * 6.0), -0.42)
-            e.addChild(model(cube, if (k < level) pbr(c, metallic = 0.85f, roughness = 0.3f, emissive = color(c.red * 0.35f, c.green * 0.35f, c.blue * 0.35f)) else unlit(color(0.2f, 0.17f, 0.14f))).apply { transform().setScaleVector(Vector3(0.09f, 0.09f, 0.03f)) })
-            if (k < level) e.addChild(sign(ch, 0.06f, 0xFF7A1A10.toInt()).apply { setPos(Vector3(0f, 0f, 0.016f)) })
+            onWall(e, 1.9, Math.toRadians(62.0 + k * 6.0), SEAL_Y)
+            if (got) {
+                e.addChild(model(cube, pbr(c, metallic = 0.85f, roughness = 0.3f, emissive = color(c.red * 0.35f, c.green * 0.35f, c.blue * 0.35f))).apply { transform().setScaleVector(Vector3(0.09f, 0.09f, 0.03f)) })
+                e.addChild(sign(ch, 0.06f, 0xFF7A1A10.toInt()).apply { setPos(Vector3(0f, 0f, 0.016f)) })
+            } else {
+                // The empty slot: a thin brown frame round light paper, the character engraved faintly.
+                e.addChild(model(cube, unlit(color(0.45f, 0.32f, 0.2f))).apply { transform().setScaleVector(Vector3(0.096f, 0.096f, 0.006f)) })
+                e.addChild(model(cube, unlit(color(0.9f, 0.84f, 0.72f))).apply { transform().setScaleVector(Vector3(0.084f, 0.084f, 0.006f)); setPos(Vector3(0f, 0f, 0.002f)) })
+                e.addChild(sign(ch, 0.058f, 0xFFB09A7C.toInt()).apply { setPos(Vector3(0f, 0f, 0.006f)) })
+            }
+            e.addChild(sign(how, 0.022f, if (got) 0xFFF0C878.toInt() else 0xFFD8CBB0.toInt()).apply { setPos(Vector3(0f, -0.07f, 0.004f)) })
             trophyRoot.addChild(e)
         }
     }
@@ -678,5 +698,7 @@ class GalleryView {
         const val SNAP_DEG = 5.0
         const val BENCH_Y = -0.48f
         const val BENCH_Z = -0.62f
+        /** The trophy seals' centre under the eyes (v0.4.2: 0.50, was 0.42). */
+        const val SEAL_Y = -0.50
     }
 }

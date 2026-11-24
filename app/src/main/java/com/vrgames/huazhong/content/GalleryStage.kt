@@ -223,8 +223,10 @@ fun GalleryStage() {
             w.show(true)
             Game.worldReady()
             Game.walkedIn()
+            w.logPerf("shown")
             // The walkers' legs: their walk cycles come in now, a model at a time (not during the build: ANR).
             w.loadWalks()
+            if (Game.inside && Game.section === s) w.logPerf("walks in")
         } else {
             w.show(false)
             w.clear()
@@ -304,7 +306,9 @@ fun GalleryStage() {
             AttachmentPanel(PANEL_RESULT) { if (panelOn(PANEL_RESULT)) ResultPanel(converter) }
             AttachmentPanel(PANEL_NOTE) { if (panelOn(PANEL_NOTE)) NotePanel(converter) }
             AttachmentPanel(PANEL_MENU) {
-                MenuPanel(converter, faceMe = { Game.faceRequest++ }, quit = { context.findActivity()?.finishAndRemoveTask() }, version = appVersion)
+                // The menu's 「退出」, also what the test hook's `quit` presses (v0.4.0).
+                Game.quit = { context.findActivity()?.finishAndRemoveTask() }
+                MenuPanel(converter, faceMe = { Game.faceRequest++ }, quit = { Game.quit?.invoke() }, version = appVersion)
             }
         },
         update = { _, attachments -> view?.let { attach(it, attachments, panels) } },
@@ -343,6 +347,10 @@ fun GalleryStage() {
             AutoPilot.ready()
             subscription[0] = content.subscribe(SceneEvents.Update::class.java) { e ->
                 val dt = e.deltaTime.toDouble().coerceIn(0.0, 0.1)
+                // v0.4.0: the frame rate on the device, every 5 s (HuaPerf), with what the world draws.
+                com.vrgames.huazhong.render.PerfLog.frame(e.deltaTime.toDouble()) {
+                    if (Game.inside && wv.built) "${wv.world?.id} ${if (wv.mini) "mini" else "full"} drawn ${wv.drawn()}" else "gallery"
+                }
                 // Every frame: only the panels of the phase shown, even ones handed over since the phase changed.
                 main.post { showPanels(panels) }
                 val pose = runCatching { if (head.state == DataProvider.State.STARTED) head.latestData?.hmdPose else null }.getOrNull()
