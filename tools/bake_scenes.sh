@@ -10,11 +10,11 @@ BL=("$HOME/.local/blender-dl/blender-4.2.3-linux-x64/blender")
 H=Pico_Vibe_Lab/HuaZhongYou
 SRC=assets_lab/huazhong/seed3d
 OLD=${OLD:-assets_lab/huazhong/scenes_v033_backup}
-WORK=assets_lab/huazhong/bake040
-OUT=$H/app/app/src/main/assets/scenes
+WORK=${WORK:-assets_lab/huazhong/bake040}
+OUT=${OUT:-$H/app/app/src/main/assets/scenes}
 REVIEW=${REVIEW:-assets_lab/huazhong/review040}
 mkdir -p $WORK $REVIEW
-grep -v '^#' $H/tools/scene_models.tsv | while IFS=$'\t' read -r n size axis yaw glow near far walk npx fpx tone; do
+grep -v '^#' ${TSV:-$H/tools/scene_models.tsv} | grep -v '# procedural' | while IFS=$'\t' read -r n size axis yaw glow near far walk npx fpx tone; do
   [ -z "$n" ] && continue
   [ -n "$ONLY" ] && ! echo " $ONLY " | grep -q " $n " && continue
   # SKIP_WALK=1: near and far only, the walk cycle kept as it is.
@@ -27,6 +27,8 @@ grep -v '^#' $H/tools/scene_models.tsv | while IFS=$'\t' read -r n size axis yaw
   case "$n" in qm_shop2) export BAKE_FAR_FROM_NEAR=1;; *) unset BAKE_FAR_FROM_NEAR;; esac
   # v0.4.1: the models regenerated from new references (the best Seed3D candidate of each) replace the 0.4.0 raws.
   raw="$SRC/$n.glb"; [ -f "assets_lab/huazhong/seed3d041/final/$n.glb" ] && raw="assets_lab/huazhong/seed3d041/final/$n.glb"
+  # v0.5.2 (near-field HD): regenerated from new high-detail references (Seedream 5.5 → Seed3D high).
+  [ -f "assets_lab/huazhong/hd3d/seed3d052/$n.glb" ] && raw="assets_lab/huazhong/hd3d/seed3d052/$n.glb"
   "${BL[@]}" -b --factory-startup --python tools/blender/bake_scene.py -- "$raw" "$WORK" "$n" "$size" "$axis" "$yaw" "$glow" "$near" "$far" "$npx" "$fpx" "$walk" "$npx" "${tone:--}" > "$WORK/$n.log" 2>&1 \
     || { echo "bake $n FAILED"; tail -5 "$WORK/$n.log"; continue; }
   grep '^BAKE ' "$WORK/$n.log"
@@ -64,5 +66,5 @@ grep -v '^#' $H/tools/scene_models.tsv | while IFS=$'\t' read -r n size axis yaw
   echo "size $d"
   "${BL[@]}" -b --factory-startup --python tools/blender/review_bake.py -- "$REVIEW/$n.png" 300 "${rows[@]}" > "$WORK/${n}_review.log" 2>&1 || echo "review $n FAILED"
 done
-python3 $H/tools/model_tris.py
+[ -z "$NO_TRIS" ] && python3 $H/tools/model_tris.py
 echo BAKE_ALL_DONE

@@ -58,7 +58,7 @@ import kotlin.random.Random
  * piece floating before the player. Built anew for each visit and destroyed on leaving (with the models'
  * own resources: nothing here is shared with the gallery).
  */
-class WorldView(private val context: Context, private val sizes: Map<String, FloatArray>) {
+class WorldView(val context: Context, val sizes: Map<String, FloatArray>) {
     val root = Entity().apply { enabled = false }
     var world: World? = null; private set
     var night = false; private set
@@ -167,9 +167,14 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         region = regionOf(w)
         miniScale = (minOf(MINI_W / (region[1] - region[0]), MINI_D / (region[3] - region[2]))).toFloat().coerceAtMost(1f / 30f)
         ground(w)
+        // v0.5.1 (device 2026-11-27: 「地面道路等等都做得相当之精细」): the ground round the player made for real (slabs,
+        // embankments, grass: tools/near_ground.py), over the photo ground, at life size only.
+        nearGround = "ng_${w.id}.glb" in sceneFiles
+        if (nearGround) runCatching { Entity.loadSuspend("asset://scenes/ng_${w.id}.glb") }
+            .onFailure { Log.w(TAG, "near ground ${w.id}: ${it.message}") }.getOrNull()?.let { bakedLook(it); fullRoot.addChild(it) }
         for (s in w.strips) {
             val g = groundName(s.color)
-            val m = groundMat(g, s.color)
+            val m = groundMatFull(g, s.color)
             fullRoot.addChild(flat(s.x0, s.z0, s.x1, s.z1, 0.012f, m, "strip", tile = GROUND_TILE[g] ?: 4f))
             clipped(s.x0, s.z0, s.x1, s.z1)?.let { c -> miniRoot.addChild(flat(c[0], c[1], c[2], c[3], 0.012f, silk(groundMat(g, s.color)), "mstrip", tile = GROUND_TILE[g] ?: 4f)) }
         }
@@ -180,19 +185,23 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         val templates = HashMap<String, Entity?>()
         // Every model the world needs, loaded side by side (one after another they took ~4 s each on the emulator).
         val extra = com.vrgames.huazhong.core.Dressing.extras(w) { m -> sizes[m]?.let { it[0].toDouble() to it[2].toDouble() } }
-        val names0 = (w.pieces.map { it.m } + extra.map { it.m } + w.movers.map { it.m } + listOfNotNull(w.restore?.m) + if (w.mastBridgeZ != null) listOf("qm_mast") else emptyList()).distinct()
+        // v0.5.1: near the player (HERO_R) a model's 近景精细版 where there is one (pieces by where they stand, movers by
+        // the nearest point of their way).
+        val heroNames = ((w.pieces + extra).map { heroOf(it.m, hypot(it.x, it.z)) } + w.movers.map { heroOf(it.m, nearest(it)) }).filter { it.endsWith("_hero") }
+        val names0 = (w.pieces.map { it.m } + extra.map { it.m } + w.movers.map { it.m } + listOfNotNull(w.restore?.m) + heroNames + if (w.mastBridgeZ != null) listOf("qm_mast") else emptyList()).distinct()
         // v0.3.1 (device 2026-11-18: 30-50 fps): every standing model has a light version (tools/blender/lo_lod.py, about a
         // quarter of the triangles, 1024 px textures), shown in the miniature and beyond [LOD_FAR] at life size.
         // v0.4.0: and the moving boats (their light version far off and on the miniature).
-        val loNames = (w.pieces.map { it.m } + extra.map { it.m } + w.movers.filter { it.boat }.map { it.m } + listOfNotNull(w.restore?.m)).distinct().filter { "${it}_lo.glb" in loAvailable }.map { "${it}_lo" }
+        // v0.5.2: every mover's light version too (the walkers' for the miniature, see [WalkerLod]).
+        val loNames = (w.pieces.map { it.m } + extra.map { it.m } + w.movers.map { it.m } + listOfNotNull(w.restore?.m)).distinct().filter { "${it}_lo.glb" in loAvailable }.map { "${it}_lo" }
         val names = names0 + loNames
         kotlinx.coroutines.coroutineScope {
             names.map { m -> m to async { runCatching { Entity.loadSuspend("asset://scenes/$m.glb") }.onFailure { Log.w(TAG, "$m: ${it.message}") }.getOrNull() } }
-                .forEach { (m, d) -> templates[m] = d.await()?.also { it.enabled = false; root.addChild(it); hidden += it; countMeshes(it, m) } }
+                .forEach { (m, d) -> templates[m] = d.await()?.also { it.enabled = false; root.addChild(it); hidden += it; countMeshes(it, m); bakedLook(it) } }
         }
         lap("models (${names.size})")
         suspend fun inst(m: String): Entity? {
-            val tpl = templates.getOrPut(m) { lap("before $m"); runCatching { Entity.loadSuspend("asset://scenes/$m.glb") }.also { lap("load $m") }.onFailure { Log.w(TAG, "$m: ${it.message}") }.getOrNull()?.also { it.enabled = false; root.addChild(it); hidden += it; countMeshes(it, m) } } ?: return null
+            val tpl = templates.getOrPut(m) { lap("before $m"); runCatching { Entity.loadSuspend("asset://scenes/$m.glb") }.also { lap("load $m") }.onFailure { Log.w(TAG, "$m: ${it.message}") }.getOrNull()?.also { it.enabled = false; root.addChild(it); hidden += it; countMeshes(it, m); bakedLook(it) } } ?: return null
             // Recursive, sharing the material instances: the clone's model component takes the template's own mesh and
             // materials (ModelComponent.clone), so the GPU holds each model once however many stand (checked: [shareCheck]).
             return tpl.clone(Entity.CloneOptions(true, true))?.also { it.enabled = true; clones += tpl to it }
@@ -200,26 +209,35 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         // v0.3: the world's own pieces, and the kit that fills it out (core/Dressing). v0.3.1: each a holder with the full
         // model and its light version, one of them shown (see [applyLod]).
         for (p in w.pieces + extra) {
-            val hi = inst(p.m) ?: continue
+            val hi = inst(heroOf(p.m, hypot(p.x, p.z))) ?: inst(p.m) ?: continue
             val lo = if ("${p.m}_lo" in templates) inst("${p.m}_lo") else null
             val e = Entity().apply { addChild(hi); lo?.let { addChild(it) } }
             e.setPos(Vector3(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
             e.transform().eulerAngles = EulerAngles(0f, p.yaw.toFloat(), 0f)
             if (p.scale != 1.0) e.setScale(p.scale.toFloat())
             box(e, p.m, if (p.find) "spot" else "scene", p.scale.toFloat())
+            contactShadow(e, p.m)
             (if (inRegion(p.x, p.z, 0.0)) root else outRoot).addChild(e)
             if (p.find) target = e
             if (lo != null) lods += Lod(hi, lo, kotlin.math.hypot(p.x, p.z))
         }
         for (m in w.movers) {
             // The plain model first; its walk cycle (if baked) is swapped in after the world is up (see loadWalks).
-            val e = inst(m.m) ?: continue
+            val e = inst(heroOf(m.m, nearest(m))) ?: inst(m.m) ?: continue
             val holder = Entity().apply { addChild(e) }
             e.transform().eulerAngles = EulerAngles(0f, (FWD[m.m] ?: 0.0).toFloat(), 0f)
             if (m.boat && "${m.m}_lo" in templates) inst("${m.m}_lo")?.let { lo ->
                 lo.transform().eulerAngles = EulerAngles(0f, (FWD[m.m] ?: 0.0).toFloat(), 0f)
                 holder.addChild(lo)
                 moverLods += MoverLod(e, lo, holder)
+            }
+            // v0.5.2: on the miniature a walker shows its light version, standing: 5 cm tall at 1:30 its legs' swing
+            // is not seen, and the HD walk frames (10k triangles each) are kept for life size.
+            if (!m.boat && "${m.m}_lo" in templates) inst("${m.m}_lo")?.let { lo ->
+                lo.transform().eulerAngles = EulerAngles(0f, (FWD[m.m] ?: 0.0).toFloat(), 0f)
+                lo.enabled = false
+                holder.addChild(lo)
+                walkerLods += WalkerLod(holder, lo, e)
             }
             box(holder, m.m, if (m.find) "spot" else "scene", 1f, turned = abs(FWD[m.m] ?: 0.0) == 90.0)
             root.addChild(holder)
@@ -230,7 +248,8 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
             // 虹桥: a mast on the big boat (the first boat mover), hinged at its foot.
             movers.firstOrNull { it.first.m == "qm_bigboat" }?.let { (_, holder) ->
                 inst("qm_mast")?.let { m ->
-                    val hinge = Entity().apply { setPos(Vector3(0f, 1.6f, 0f)) }
+                    // v0.5.1: on the cabin roof, forward of the middle (core/Worlds.MAST_HINGE, MAST_FWD; the holder's +z is the bow).
+                    val hinge = Entity().apply { setPos(Vector3(0f, com.vrgames.huazhong.core.Worlds.MAST_HINGE.toFloat(), com.vrgames.huazhong.core.Worlds.MAST_FWD.toFloat())) }
                     hinge.addChild(m)
                     holder.addChild(hinge)
                     mast = hinge
@@ -312,21 +331,24 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         val pano = if (night && w.id == "qm3") "qm3n" else w.pano
         withContext(Dispatchers.IO) { runCatching { context.assets.open("scenes/pano_$pano.jpg").use { BitmapFactory.decodeStream(it) }?.let { TextureResource.create(it).shared() } }.getOrNull() }?.let { t ->
             owned += t
-            fullRoot.addChild(skySphere(t).apply { setPos(Vector3(0f, eyeHeight, 0f)); transform().eulerAngles = EulerAngles(0f, -90f, 0f) })
+            fullRoot.addChild(skySphere(t, PANO_LIFT[pano] ?: 0.0).apply { setPos(Vector3(0f, eyeHeight, 0f)); transform().eulerAngles = EulerAngles(0f, -90f, 0f) })
         }
         
         // v0.3: the band round the horizon at twice the panorama's sharpness (tools/pano_band.py), just inside the sky.
+        // v0.5.0: not on 上元 night: without tone mapping the night band's blue is a shade off the night sky's, and its
+        // upper edge showed as an arc across the stars (emulator 2026-11-27); the night sky alone is sharp enough.
         for (half in 0..1) {
+            if (pano == "qm3n") break
             val t = withContext(Dispatchers.IO) { runCatching { context.assets.open("scenes/band_${pano}_${if (half == 0) "a" else "b"}.jpg").use { BitmapFactory.decodeStream(it) }?.let { TextureResource.create(it).shared() } }.getOrNull() } ?: continue
             owned += t
-            fullRoot.addChild(ModelEntity(bandMesh(half), UnlitMaterial.create(BlendingMode.OPAQUE).apply { setBaseColor(color(1f, 1f, 1f)); setBaseColorTexture(t); setCullingMode(MaterialCullingMode.FRONT) }).apply {
+            fullRoot.addChild(ModelEntity(bandMesh(half, PANO_LIFT[pano] ?: 0.0), UnlitMaterial.create(BlendingMode.OPAQUE).apply { setBaseColor(color(1f, 1f, 1f)); setBaseColorTexture(t); setCullingMode(MaterialCullingMode.FRONT); runCatching { setApplyToneMapping(false) } }).apply {
                 transform().setScaleVector(Vector3(149f))
                 setPos(Vector3(0f, eyeHeight, 0f))
                 transform().eulerAngles = EulerAngles(0f, -90f, 0f)
             })
         }
         fullRoot.enabled = !mini
-        Log.i(TAG, "sky ${w.id} in ${android.os.SystemClock.uptimeMillis() - t0} ms")
+        Log.i(TAG, "sky ${w.id} ($pano, lifted ${PANO_LIFT[pano] ?: 0.0} deg) in ${android.os.SystemClock.uptimeMillis() - t0} ms")
     }
 
     /**
@@ -336,16 +358,23 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
      */
     suspend fun loadWalks() {
         val w = world ?: return
-        for (name in movers.map { it.first.m }.distinct()) {
-            if ("${name}_walk.glb" !in sceneFiles || name in walked) continue
+        // v0.5.1: a walker near the player walks in its 近景精细版 cycle (<m>_hero_walk.glb) where there is one.
+        fun walkFile(m: Mover): String? {
+            val hero = "${m.m}_hero_walk"
+            if (heroOf(m.m, nearest(m)).endsWith("_hero") && "$hero.glb" in sceneFiles) return hero
+            return "${m.m}_walk".takeIf { "$it.glb" in sceneFiles }
+        }
+        for (file in movers.mapNotNull { walkFile(it.first) }.distinct()) {
+            if (file in walked) continue
             val t0 = android.os.SystemClock.uptimeMillis()
-            val tpl = runCatching { Entity.loadSuspend("asset://scenes/${name}_walk.glb") }.onFailure { Log.w(TAG, "${name}_walk: ${it.message}") }.getOrNull() ?: continue
+            val tpl = runCatching { Entity.loadSuspend("asset://scenes/$file.glb") }.onFailure { Log.w(TAG, "$file: ${it.message}") }.getOrNull() ?: continue
             if (world !== w) { tpl.destroy(); return }
             tpl.enabled = false
+            bakedLook(tpl)
             root.addChild(tpl)
             hidden += tpl
             for ((m, holder) in movers) {
-                if (m.m != name) continue
+                if (walkFile(m) != file) continue
                 val old = holder.getChildren().firstOrNull() ?: continue
                 val walk = tpl.clone(Entity.CloneOptions(true, true)) ?: continue
                 walk.transform().eulerAngles = old.transform().eulerAngles
@@ -362,13 +391,33 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
                 holder.removeChild(old)
                 old.destroy()
                 holder.addChild(walk)
+                walkerLods.firstOrNull { it.holder === holder }?.let { l -> l.main = walk; walk.enabled = !mini }
                 fr.forEachIndexed { i, f -> f.enabled = i == 0 }
                 if (fr.size > 1) { walkFrames[holder] = fr; walkShown[holder] = 0 }
             }
-            walked += name
-            Log.i(TAG, "walk ${name} in ${android.os.SystemClock.uptimeMillis() - t0} ms")
+            walked += file
+            Log.i(TAG, "walk $file in ${android.os.SystemClock.uptimeMillis() - t0} ms")
             kotlinx.coroutines.delay(150)
         }
+    }
+
+    /** v0.5.1: [m]'s 近景精细版 if it stands (or comes) within [HERO_R] of the player and the file is there. */
+    private fun heroOf(m: String, d: Double): String = if (d < HERO_R && "${m}_hero.glb" in sceneFiles) "${m}_hero" else m
+
+    /** How near a mover's way comes to the player. */
+    private fun nearest(m: Mover): Double {
+        val pts = if (m.loop && !m.reset) m.path + m.path.first() else m.path
+        var best = Double.MAX_VALUE
+        for (i in 0 until pts.size - 1) {
+            val (ax, az) = pts[i]
+            val (bx, bz) = pts[i + 1]
+            val dx = bx - ax
+            val dz = bz - az
+            val l2 = dx * dx + dz * dz
+            val t = if (l2 > 0) ((-ax * dx - az * dz) / l2).coerceIn(0.0, 1.0) else 0.0
+            best = minOf(best, hypot(ax + t * dx, az + t * dz))
+        }
+        return best
     }
 
     /** Every part shown or hidden as it should be now (after the root came on: see [hidden]). */
@@ -384,6 +433,11 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
             if (l.hi.enabled == useLo) l.hi.enabled = !useLo
             if (l.lo.enabled != useLo) l.lo.enabled = useLo
         }
+        // v0.5.2: the walkers: their light version on the miniature, their walk cycle life size.
+        for (l in walkerLods) {
+            if (l.lo.enabled != mini) l.lo.enabled = mini
+            if (l.main.enabled == mini) l.main.enabled = !mini
+        }
         // The moving boats by where they are now.
         for (l in moverLods) {
             val p = l.holder.transform().position
@@ -395,6 +449,9 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
 
     private class MoverLod(val hi: Entity, val lo: Entity, val holder: Entity)
     private val moverLods = ArrayList<MoverLod>()
+    /** v0.5.2: a walker's light version (the miniature) and what it shows life size (its model, then its walk cycle). */
+    private class WalkerLod(val holder: Entity, val lo: Entity, var main: Entity)
+    private val walkerLods = ArrayList<WalkerLod>()
     private var wakeFrames: List<TextureResource> = emptyList()
     /** Each clone and the template it came from (for [shareCheck]). */
     private val clones = ArrayList<Pair<Entity, Entity>>()
@@ -588,6 +645,7 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         hidden.clear()
         lods.clear()
         moverLods.clear()
+        walkerLods.clear()
         clones.clear()
         water.clear()
         meshTris.clear()
@@ -608,6 +666,8 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         near.getChildren().forEach { it.destroy() }
         owned.forEach { runCatching { it.close() } }
         owned.clear()
+        // Its picture was among [owned]: made again for the next world.
+        shadowMat = null
         pieceOut = false; pieceIn = false
         mast = null; mastBoat = null; piece = null; pieceFull = null; pieceHome = null; homeMark = null; label = null; target = null
         flyT = -1.0
@@ -675,14 +735,105 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         // v0.3: a disc of real ground (stone slabs, earth, grass, sand: a Seedream photo made to tile, with its
         // relief as a normal map) lit by the world's own light, out to 26 m; then fading by 60 m, in the
         // ground's average colour, to where the painted ground of the panorama takes over.
+        // v0.5.0: drawn as it is (unlit, no tone mapping) at a set brightness: lit by the panorama's light the stone
+        // came out nearly white beside the baked buildings.
         val g = groundName(w.ground)
         val tile = GROUND_TILE[g] ?: 4f
-        fullRoot.addChild(model(disc(0.0, 26.0, tile, "ground${w.id}"), groundMat(g, w.ground)))
+        fullRoot.addChild(model(disc(0.0, 26.0, tile, "ground${w.id}"), groundMatFull(g, w.ground)))
         val fade = Bitmap.createBitmap(4, 64, Bitmap.Config.ARGB_8888)
-        val c = groundCache[g]?.third?.let { avg -> tinted(avg, w.ground) } ?: w.ground.toInt()
+        val c0 = groundCache[g]?.third?.let { avg -> tinted(avg, w.ground) } ?: w.ground.toInt()
+        // The disc's average as shown: its picture's average under the same gain (a linear factor: sRGB x gain^(1/2.2)).
+        val k = Math.pow((GROUND_GAIN[g] ?: 0.6f).toDouble(), 1 / 2.2).toFloat()
+        val c = (0xFF shl 24) or (ch(((c0 shr 16) and 0xFF) / 255f * k) shl 16) or (ch(((c0 shr 8) and 0xFF) / 255f * k) shl 8) or ch((c0 and 0xFF) / 255f * k)
         for (y in 0 until 64) for (x in 0 until 4) fade.setPixel(x, y, (((255 * (1 - y / 63f)).toInt()) shl 24) or (c and 0xFFFFFF))
         val ft = TextureResource.create(fade).shared().also { owned += it }
-        fullRoot.addChild(model(ring(26.0, 60.0, "fade${w.id}"), PhysicallyBasedMaterial.create(BlendingMode.TRANSPARENT).apply { setBaseColor(color(1f, 1f, 1f)); setBaseColorTexture(ft); setRoughness(0.95f); setMetallic(0f); setCullingMode(MaterialCullingMode.NONE) }).apply { setPos(Vector3(0f, -0.005f, 0f)) })
+        fullRoot.addChild(model(ring(26.0, 60.0, "fade${w.id}"), UnlitMaterial.create(BlendingMode.TRANSPARENT).apply { setBaseColor(color(1f, 1f, 1f)); setBaseColorTexture(ft); setCullingMode(MaterialCullingMode.NONE); runCatching { setApplyToneMapping(false) } }).apply { setPos(Vector3(0f, -0.005f, 0f)) })
+    }
+
+    /**
+     * v0.5.0: a soft shade on the ground under a standing model (the baked light shades the model itself, not the
+     * ground it stands on): its footprint, darkest inside, fading out a little beyond its edges. One shared quad and
+     * picture, scaled per model; above the ground and the roads.
+     */
+    private fun contactShadow(e: Entity, m: String) {
+        val sz = sizes[m] ?: return
+        // Not under what spans or floats on the water (the shade would flicker against the water surface).
+        if (m.startsWith("lantern") || m in NO_SHADE) return
+        val mesh = shadowMesh ?: MeshResource.createWithMeshModel(
+            MeshModel(listOf(Vector3(-0.5f, 0f, 0.5f), Vector3(0.5f, 0f, 0.5f), Vector3(0.5f, 0f, -0.5f), Vector3(-0.5f, 0f, -0.5f)), listOf(0, 1, 2, 0, 2, 3), List(4) { Vector3(0f, 1f, 0f) }, List(4) { Vector4(1f, 0f, 0f, 1f) },
+                listOf(Vector2(0f, 0f), Vector2(1f, 0f), Vector2(1f, 1f), Vector2(0f, 1f))),
+            bbox(Vector3(-0.5f, -0.01f, -0.5f), Vector3(0.5f, 0.01f, 0.5f)), "contact_shadow",
+        ).shared().also { shadowMesh = it }
+        val mat = shadowMat ?: run {
+            // 64 x 64: alpha 0.42 inside 70% of the quad, easing to 0 at its edge (a rounded box, smoothstep).
+            val n = 64
+            val bmp = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888)
+            for (y in 0 until n) for (x in 0 until n) {
+                val u = abs((x + 0.5f) / n * 2 - 1)
+                val v = abs((y + 0.5f) / n * 2 - 1)
+                val r = kotlin.math.sqrt(maxOf(0f, u - 0.6f).let { it * it } + maxOf(0f, v - 0.6f).let { it * it }) / 0.4f
+                val t = (1 - r).coerceIn(0f, 1f)
+                val a = 0.42f * t * t * (3 - 2 * t)
+                bmp.setPixel(x, y, ((a * 255).toInt() shl 24) or 0x1A140E)
+            }
+            val t = TextureResource.create(bmp).shared().also { owned += it }
+            UnlitMaterial.create(BlendingMode.TRANSPARENT).apply { setBaseColor(color(1f, 1f, 1f)); setBaseColorTexture(t); setCullingMode(MaterialCullingMode.NONE); runCatching { setApplyToneMapping(false) } }.also { shadowMat = it }
+        }
+        // Footprint (w, d) and a margin of 25% (at least 0.6 m) all round. v0.5.1: a tree's shade is under the middle of its
+        // crown (0.6 of it); within the near ground (tools/near_ground.py: its light baked with the buildings standing
+        // round) only trees get one; 10 cm up, over the near ground's slabs and bumps (it flickered through them).
+        val tree = m.startsWith("t_") || m == "ql_pine"
+        val p = e.transform().position
+        if (!tree && nearGround && hypot(p.x.toDouble(), p.z.toDouble()) < 26.0) return
+        val k = if (tree) 0.6f else 1f
+        val w = sz[0] * k + maxOf(0.6f, sz[0] * k * 0.25f)
+        val d = sz[2] * k + maxOf(0.6f, sz[2] * k * 0.25f)
+        e.addChild(model(mesh, mat).apply { setPos(Vector3(0f, 0.1f, 0f)); transform().setScaleVector(Vector3(w, 1f, d)) })
+    }
+
+    private val NO_SHADE = setOf("qm_bridge", "ql_longbridge", "qm_cargo", "qm_bigboat", "qm_canopy", "qm_rowboat", "ql_fishboat")
+    /** v0.5.1: the world being built has its near ground (ng_<id>.glb). */
+    private var nearGround = false
+    private var shadowMesh: MeshResource? = null
+    private var shadowMat: UnlitMaterial? = null
+
+    /**
+     * v0.5.0: the scene models' light is baked into their pictures (tools/blender/bake_light.py, unlit): drawn without
+     * tone mapping, exactly as baked (as 大卫的元宇宙's city). On 上元 night they are dimmed toward the night's blue (the
+     * baked daylight would glow in the dark); the lanterns (lit, emissive) are left alone.
+     */
+    private fun bakedLook(e: Entity) {
+        val seen = java.util.IdentityHashMap<Any, Boolean>()
+        var n = 0
+        fun walk(x: Entity) {
+            x.components[ModelComponent::class.java]?.materials?.forEach { m ->
+                if (m is UnlitMaterial && seen.put(m, true) == null) {
+                    runCatching { m.setApplyToneMapping(false) }
+                    // v0.5.1: the material's own colour kept (the procedural models carry their tints as base colour
+                    // factors: the bridge's red railings, the grass; they all came out white by day); at night the
+                    // night's blue on top of it. The first colour seen is remembered (a loaded model may come back cached).
+                    val own = ORIGINAL_BASE.getOrPut(m) { runCatching { m.getBaseColor() }.getOrNull() ?: color(1f, 1f, 1f) }
+                    m.setBaseColor(if (night) color(own.red * NIGHT_TINT.red, own.green * NIGHT_TINT.green, own.blue * NIGHT_TINT.blue, own.alpha) else own)
+                    n++
+                }
+            }
+            x.getChildren().forEach { walk(it) }
+        }
+        walk(e)
+        if (n == 0) Log.i(TAG, "bakedLook: no unlit material in ${e.getName()}")
+    }
+
+    /** The life-size ground: its picture unlit at [GROUND_GAIN] (the mini's board keeps the lit [groundMat]). */
+    private fun groundMatFull(name: String, c: Long): Material {
+        val (tex, _, _) = groundCache[name] ?: return grainMat(c, 4f)
+        val t = tintOf(c)
+        val k = GROUND_GAIN[name] ?: 0.6f
+        return UnlitMaterial.create(BlendingMode.OPAQUE).apply {
+            setBaseColor(color(t.red * k, t.green * k, t.blue * k))
+            setBaseColorTexture(tex)
+            setCullingMode(MaterialCullingMode.NONE)
+            runCatching { setApplyToneMapping(false) }
+        }
     }
 
     /** Ground pictures (assets ground/<name>.jpg and _n.png), kept across worlds: colour, normal map, average colour. */
@@ -906,20 +1057,16 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
     // ---- 上元夜: lanterns and fireworks over the rainbow bridge ----
 
     private suspend fun night(w: World) {
-        val rnd = Random(3)
         val tpl = runCatching { Entity.loadSuspend("asset://scenes/lantern_sky.glb") }.getOrNull()?.also { it.enabled = false; root.addChild(it) }
-        repeat(36) {
+        // x, z, start height, rising speed, sway phase (core/MiniPanels.skyLanterns: the panels' check knows them too).
+        for (s in com.vrgames.huazhong.core.MiniPanels.skyLanterns()) {
             val e = tpl?.clone(Entity.CloneOptions(true, true))?.also { it.enabled = true } ?: model(sphere, glow(color(1f, 0.6f, 0.25f, 1f))).apply { setScale(0.4f) }
-            val a = rnd.nextDouble() * 2 * PI
-            val r = 6 + rnd.nextDouble() * 30
-            // x, z, start height, rising speed, sway phase
-            val s = doubleArrayOf(r * sin(a), -abs(r * cos(a)) - 4, rnd.nextDouble() * 25, 0.25 + rnd.nextDouble() * 0.35, rnd.nextDouble() * 6)
             root.addChild(e)
             sky += e to s
         }
         val red = runCatching { Entity.loadSuspend("asset://scenes/lantern_red.glb") }.getOrNull()?.also { it.enabled = false; root.addChild(it) }
         // Red lanterns along both banks, under the eaves.
-        for (z in listOf(-6.0, -9.0, -12.0, -21.0, -24.0)) for (x in listOf(-9.5, 9.5)) {
+        for ((x, z) in com.vrgames.huazhong.core.MiniPanels.RED_LANTERNS) {
             val e = red?.clone(Entity.CloneOptions(true, true))?.also { it.enabled = true } ?: continue
             e.setPos(Vector3(x.toFloat(), 3.2f, z.toFloat()))
             root.addChild(e)
@@ -1077,7 +1224,9 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
             }
         }
         for ((m, e) in movers) {
-            val a = m.at(clock)
+            // v0.5.2: 虹桥's big boat lies still on the miniature (core/MiniPanels.stillOnMiniature).
+            val still = mini && world?.let { com.vrgames.huazhong.core.MiniPanels.stillOnMiniature(it, m) } == true
+            val a = if (still) m.at(com.vrgames.huazhong.core.MiniPanels.stillTime(m)) else m.at(clock)
             // The miniature shows its own part only: whoever walks off the board is not drawn over the table's edge.
             val shown = !mini || inRegion(a[0], a[1], -0.5)
             if (e.enabled != shown) e.enabled = shown
@@ -1110,18 +1259,24 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
             e.setPos(Vector3(a[0].toFloat(), (a[3] + bob).toFloat(), a[1].toFloat()))
             e.transform().eulerAngles = EulerAngles(pitch.toFloat(), a[2].toFloat(), roll.toFloat())
         }
-        // The mast comes down as the boat nears the bridge, and up again as it backs off.
+        // v0.5.1: the mast comes down one way only, toward the stern, as the boat goes from the player to the bridge
+        // (core/Worlds.mastAngle); at the start again it stands up (it went up and down with the boat's back and forth).
         val bz = world?.mastBridgeZ
         val mb = mastBoat
         if (bz != null && mb != null) {
-            val z = mb.transform().position.z
-            val k = ((z - (bz + 10.0)) / -6.0).coerceIn(0.0, 1.0)
-            mast?.transform()?.eulerAngles = EulerAngles((-75 * k).toFloat(), 0f, 0f)
+            val mv = movers.firstOrNull { it.second === mb }?.first
+            val ang = if (mv == null) 0.0 else com.vrgames.huazhong.core.Worlds.mastAngle(if (mini) com.vrgames.huazhong.core.Worlds.MINI_STILL else mv.progress(clock))
+            mast?.transform()?.eulerAngles = EulerAngles((-ang).toFloat(), 0f, 0f)
         }
         fallAt?.let { if (Math.random() < dt * 20) mist.emit(it, 3, 0.8, 1.8, 0.25f, Vec3(0.0, 0.3, 0.6)) }
         mist.update(dt, 0.6)
         if (night) {
             for ((e, s) in sky) {
+                // v0.5.2: on the miniature only the lanterns beyond the panels rise (nearer ones went up through the
+                // result panel); life size all of them.
+                val on = !mini || rootPos.z + miniScale * s[1] < com.vrgames.huazhong.core.MiniPanels.NIGHT_FAR
+                if (e.enabled != on) e.enabled = on
+                if (!on) continue
                 val y = (s[2] + clock * s[3]) % 32.0
                 e.setPos(Vector3((s[0] + 0.6 * sin(clock * 0.3 + s[4])).toFloat(), (3 + y).toFloat(), s[1].toFloat()))
             }
@@ -1167,6 +1322,21 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
     }
 
     companion object {
+        /**
+         * v0.5.0: each ground picture's brightness at life size (a linear factor on the photo): its average brought to
+         * about 0.58 (stone, road, sand), 0.52 (earth), 0.42 (grass) in display terms, beside the baked buildings.
+         */
+        val GROUND_GAIN = mapOf("pave" to 0.54f, "road" to 0.6f, "shore" to 0.52f, "earth" to 0.64f, "field" to 0.8f)
+
+        /** v0.5.1: each unlit material's own base colour, as first loaded (see [bakedLook]). */
+        private val ORIGINAL_BASE = java.util.Collections.synchronizedMap(java.util.WeakHashMap<UnlitMaterial, Color4>())
+
+        /** v0.5.0: the baked models on 上元 night (see [bakedLook]). */
+        val NIGHT_TINT = color(0.36f, 0.34f, 0.46f)
+
+        /** v0.5.1: within this many metres of the player a model shows its 近景精细版 (see [heroOf]). */
+        const val HERO_R = 13.0
+
         /** Metres per repeat of each ground picture (the slabs about half a metre long). */
         private val GROUND_TILE = mapOf("pave" to 3.5f, "field" to 4f, "earth" to 4f, "road" to 4f, "shore" to 4f)
 
@@ -1197,28 +1367,45 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
         /** How near (degrees, from the eyes) the miniature must be to its home to go back in. */
         const val AIM_DEG = 12.0
 
+        val FWD get() = com.vrgames.huazhong.core.Worlds.FWD
+
         /**
-         * Which way a moving model faces when unturned, so it walks forward (degrees added to its heading). From the
-         * front views of the prepared models: people, the donkey, camel, horse, wheelbarrow and (v0.3) the rider on his
-         * donkey face +z; the boats and the ox cart stand side-on, heading toward +x; the v0.3 sedan stands side-on with
-         * its bearers heading toward -x.
+         * v0.5.0 (PICO 1127: 「进入 full space 后，模型精度和视觉效果还有较大提升空间」): how far (degrees) each panorama is
+         * lifted at the horizon. The paintings are seen from above: their far city, walls and hills lie 5-20 degrees
+         * below the middle row, and the ground disc (opaque to 26 m, 3.5 degrees down from the eyes) hid them: the
+         * street ended in bare sky. Lifted, the painted skyline stands just over the ground's edge. A smooth warp
+         * (display = image + lift x cos(image)): the poles stay, the sky above is only a little compressed.
          */
-        val FWD = mapOf(
-            "qm_cargo" to -90.0, "qm_bigboat" to -90.0, "qm_canopy" to -90.0, "qm_rowboat" to -90.0, "ql_fishboat" to -90.0,
-            "qm_oxcart" to -90.0, "qm_sedan" to 90.0,
+        // Checked from eye height in Blender (the sphere and ground disc as built here): at 13 degrees 孙羊正店's street
+        // still ended in bare sky with only roof tips showing; at these the far roofs, the 汴河 with its boats, the city
+        // wall and its gate tower, the green hills stand on the horizon. 虹桥 (qm3, and its night qm3n) not at all: its
+        // painting's bridge crowd lies just under the middle row, and lifted it stood as giants behind the 3D bridge
+        // (emulator 2026-11-27); 孙羊正店 at 17 rather than 20 (at 20 the painting's own near shop fronts rose too).
+        val PANO_LIFT = mapOf(
+            "qm1" to 3.0, "qm2" to 10.0, "qm4" to 6.0, "qm5" to 5.0, "qm6" to 17.0,
+            "ql1" to 2.0, "ql2" to 14.0, "ql3" to 4.0,
         )
 
+        /** Polar angle (from straight up) at which the panorama's row at polar angle [phi] is shown, for [lift] degrees. */
+        fun liftedPhi(phi: Double, lift: Double): Double {
+            if (lift == 0.0) return phi
+            val e = PI / 2 - phi
+            return PI / 2 - (e + Math.toRadians(lift) * cos(e))
+        }
+
         /** The panorama sphere (as the courtyard's of 时空记忆宫殿): the bitmap's width round the horizon, height pole to pole. */
-        private val skyMesh: MeshResource by lazy {
+        private val skyMeshes = HashMap<Double, MeshResource>()
+
+        fun skyMesh(lift: Double): MeshResource = skyMeshes.getOrPut(lift) {
             val cols = 64
-            val rows = 32
+            val rows = 48
             val pos = ArrayList<Vector3>()
             val nor = ArrayList<Vector3>()
             val tan = ArrayList<Vector4>()
             val uv = ArrayList<Vector2>()
             val idx = ArrayList<Int>()
             for (j in 0..rows) for (i in 0..cols) {
-                val phi = PI * j / rows
+                val phi = liftedPhi(PI * j / rows, lift)
                 val th = 2 * PI * i / cols
                 val p = Vector3((sin(phi) * cos(th)).toFloat(), cos(phi).toFloat(), (sin(phi) * sin(th)).toFloat())
                 pos += p
@@ -1233,16 +1420,16 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
                 val d = a + cols + 1
                 idx += listOf(a, b, c, a, c, d)
             }
-            MeshResource.createWithMeshModel(MeshModel(pos, idx, nor, tan, uv), null, "world_sky").shared()
+            MeshResource.createWithMeshModel(MeshModel(pos, idx, nor, tan, uv), null, "world_sky_$lift").shared()
         }
 
         /** Panorama rows the sharp band covers (of 2048), as tools/pano_band.py cuts them. */
         private const val BAND_Y0 = 544.0
         private const val BAND_Y1 = 1504.0
-        private val bandMeshes = arrayOfNulls<MeshResource>(2)
+        private val bandMeshes = HashMap<Pair<Int, Double>, MeshResource>()
 
         /** Half [half] (0: the first half of the circle, 1: the second) of the horizon band, mapped as the sky sphere. */
-        fun bandMesh(half: Int): MeshResource = bandMeshes[half] ?: run {
+        fun bandMesh(half: Int, lift: Double = 0.0): MeshResource = bandMeshes.getOrPut(half to lift) {
             val cols = 64
             val rows = 16
             val pos = ArrayList<Vector3>()
@@ -1251,7 +1438,7 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
             val uv = ArrayList<Vector2>()
             val idx = ArrayList<Int>()
             for (j in 0..rows) for (i in 0..cols) {
-                val phi = PI * (BAND_Y0 + (BAND_Y1 - BAND_Y0) * j / rows) / 2048.0
+                val phi = liftedPhi(PI * (BAND_Y0 + (BAND_Y1 - BAND_Y0) * j / rows) / 2048.0, lift)
                 val th = PI * (half + i.toDouble() / cols)
                 val p = Vector3((sin(phi) * cos(th)).toFloat(), cos(phi).toFloat(), (sin(phi) * sin(th)).toFloat())
                 pos += p
@@ -1266,19 +1453,26 @@ class WorldView(private val context: Context, private val sizes: Map<String, Flo
                 val d = a + cols + 1
                 idx += listOf(a, b, c, a, c, d)
             }
-            MeshResource.createWithMeshModel(MeshModel(pos, idx, nor, tan, uv), null, "world_band$half").shared().also { bandMeshes[half] = it }
+            MeshResource.createWithMeshModel(MeshModel(pos, idx, nor, tan, uv), null, "world_band${half}_$lift").shared()
         }
 
-        fun skySphere(tex: TextureResource): Entity = ModelEntity(
-            skyMesh,
+        fun skySphere(tex: TextureResource, lift: Double = 0.0): Entity = ModelEntity(
+            skyMesh(lift),
             UnlitMaterial.create(BlendingMode.OPAQUE).apply {
                 setBaseColor(color(1f, 1f, 1f))
                 setBaseColorTexture(tex)
                 setCullingMode(MaterialCullingMode.FRONT)
+                // v0.5.0: the painting's own colours (tone mapping washed them toward white).
+                runCatching { setApplyToneMapping(false) }
             },
         ).apply { transform().setScaleVector(Vector3(150f)) }
 
         private fun ch(v: Float) = (v.coerceIn(0f, 1f) * 255).toInt()
+
+        /** v0.5.2: shapes.txt, the models' outlines as columns (core/MiniPanels.Shape). */
+        fun loadShapes(context: Context): Map<String, com.vrgames.huazhong.core.MiniPanels.Shape> = runCatching {
+            com.vrgames.huazhong.core.MiniPanels.parseShapes(context.assets.open("scenes/shapes.txt").bufferedReader().readLines())
+        }.getOrDefault(emptyMap())
 
         /** sizes.txt: "<model> <w> <h> <d>" per line (metres, as prepared). */
         fun loadSizes(context: Context): Map<String, FloatArray> = runCatching {

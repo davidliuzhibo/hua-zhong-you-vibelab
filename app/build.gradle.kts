@@ -14,8 +14,8 @@ android {
         applicationId = "com.vrgames.huazhong"
         minSdk = 35
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.4.2"
+        versionCode = 14
+        versionName = "0.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters.add("arm64-v8a") }

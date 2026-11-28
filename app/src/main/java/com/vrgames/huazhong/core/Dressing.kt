@@ -39,7 +39,9 @@ object Dressing {
         val xs = ArrayList<Double>()
         val zs = ArrayList<Double>()
         for (p in w.pieces) { xs += p.x; zs += p.z }
-        for (m in w.movers) for ((x, z) in m.path) { xs += x; zs += z }
+        // v0.5.1: only the near part of the ways (one-way movers start and end far off, out of sight; their far ends would
+        // spread the kit thin over a much larger region).
+        for (m in w.movers) for ((x, z) in m.path) if (kotlin.math.abs(x) <= 32.0 && z >= -40.0 && z <= 6.0) { xs += x; zs += z }
         w.restore?.let { xs += it.x; zs += it.z }
         w.fall?.let { xs += it.x; zs += it.z }
         if (xs.isEmpty()) return doubleArrayOf(-20.0, 20.0, -30.0, 2.0)
@@ -103,7 +105,7 @@ object Dressing {
         for (s in w.strips) if (inside(x, z, s.x0, s.z0, s.x1, s.z1, rad + 1.0)) return false
         for ((px, pz, pr) in placed) if (hypot(x - px, z - pz) < rad + pr + 1.0) return false
         for (m in w.movers) {
-            val pts = if (m.loop) m.path + m.path.first() else m.path
+            val pts = if (m.loop && !m.reset) m.path + m.path.first() else m.path
             // A boat's lane is wider (its beam is up to 4 m).
             for (i in 0 until pts.size - 1) if (segDist(x, z, pts[i], pts[i + 1]) < rad + if (m.boat) 3.5 else 2.0) return false
         }

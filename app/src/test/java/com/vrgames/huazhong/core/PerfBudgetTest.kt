@@ -40,13 +40,14 @@ class PerfBudgetTest {
         sb.append("all | $sumOld → $sumNew (${100 * sumNew / sumOld}%) | $sumOldM → $sumNewM (${100 * sumNewM / sumOldM}%)")
         println(sb)
         checks.forEach { it() }
-        assertTrue("all sections at life size: $sumNew vs $sumOld", sumNew <= sumOld * 0.5)
+        assertTrue("all sections at life size: $sumNew vs $sumOld", sumNew <= sumOld * 0.55)
         assertTrue("all miniatures: $sumNewM vs $sumOldM", sumNewM <= sumOldM * 0.65)
     }
 
     companion object {
         /** Each section at life size: at most 56 % of 0.3.3 (all together at most half). */
-        const val FULL_MAX = 0.56
+        // v0.5.1: + the near ground made for real (tools/near_ground.py, 9-32k triangles a section).
+        const val FULL_MAX = 0.65
         /**
          * The miniature showed light versions already in 0.3.3 (a quarter of the full models), so it drops less; the
          * country road (汴京郊野) least, being mostly trees, whose leaves and petals do not decimate further.

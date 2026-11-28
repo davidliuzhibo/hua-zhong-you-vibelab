@@ -5,32 +5,35 @@ qm_shop	6	h	0	0.12	22000	9900	0	2048	1024	-	0
 qm_shop2	8	h	0	0.12	22000	22000	0	2048	1024	-	0
 qm_cailou	7	h	0	0.12	22000	9900	0	2048	1024	-	0
 qm_gate	16	h	0	0.12	30000	13500	0	2048	1024	-	0
-qm_bridge	26	max	0	0.12	30000	13500	0	2048	1024	-	0
+# v0.5.1: qm_bridge is built procedurally (tools/hongqiao.py, the woven-timber 虹桥), not baked from a Seed3D raw:
+# bake_scenes.sh must skip it (its row is commented out); the model test reads its budget from the next line.
+#qm_bridge	26	max	0	0.12	30000	13500	0	2048	1024	-	0
+qm_bridge	26	max	0	0.12	26248	15012	0	2048	1024	-	0	# procedural, near detail (0.5.2: tools/hongqiao.py, bigboat.py, boats_hd.py)
 qm_warehouse	7	h	0	0.12	22000	9900	0	2048	1024	-	0
 qm_farm	5	h	0	0.12	20000	9000	0	2048	1024	-	0
 qm_house	6	h	0	0.12	22000	9900	0	2048	1024	-	0
-qm_stall	3.2	h	0	0.12	12000	4000	0	2048	1024	-	0
-qm_teashed	3.5	h	0	0.12	12000	4000	0	2048	1024	-	0
-qm_cargo	18	max	0	0.12	24000	10800	0	2048	1024	-	0
-qm_bigboat	16	max	0	0.12	24000	10800	0	2048	1024	-	0
-qm_mast	12	h	0	0.12	4000	1800	0	2048	1024	-	0
-qm_canopy	7	max	0	0.12	15000	6750	0	2048	1024	-	0
-qm_rowboat	5	max	0	0.12	12000	5400	0	2048	1024	-	0
-qm_oxcart	5	max	0	0.12	15000	6750	7000	2048	1024	-	0
-qm_sedan	2.2	h	0	0.12	12000	4000	7000	2048	1024	-	0
-qm_barrow	1.7	h	0	0.12	12000	4000	6000	2048	1024	-	0
-qm_donkey	1.6	h	0	0.12	15000	5000	7000	2048	1024	-	0
-qm_camel	2.4	h	0	0.12	15000	5000	7000	2048	1024	-	0
-qm_horse	2.5	h	0	0.12	15000	5000	7000	2048	1024	-	0
-p_porter	1.7	h	0	0.12	15000	3000	6000	2048	1024	-	0
-p_boatman	1.75	h	0	0.12	15000	3000	0	2048	1024	-	0
-p_merchant	1.75	h	0	0.12	15000	3000	6000	2048	1024	-	0
-p_scholar	1.75	h	0	0.12	26000	3000	6000	2048	1024	-	0
-p_vendor	1.7	h	0	0.12	15000	3000	6000	2048	1024	-	0
-p_woman	1.65	h	0	0.12	15000	3000	6000	2048	1024	-	0
-p_child	1.1	h	-90	0.12	15000	3000	6000	2048	1024	-	0
-p_driver	1.7	h	0	0.12	15000	3000	6000	2048	1024	-	0
-p_story	1.7	h	0	0.12	15000	3000	0	2048	1024	-	0
+qm_stall	3.2	h	0	0.12	14000	4000	0	2048	1024	-	0
+qm_teashed	3.5	h	90	0.12	20000	4000	0	2048	1024	-	0
+qm_cargo	18	max	0	0.12	11833	5011	0	2048	1024	-	0	# procedural, near detail (0.5.2: tools/cargoboat.py)
+qm_bigboat	16	max	0	0.12	5343	2557	0	2048	1024	-	0	# procedural, near detail (0.5.2: tools/hongqiao.py, bigboat.py, boats_hd.py)
+qm_mast	12	h	0	0.12	1180	516	0	1024	512	-	0	# procedural, near detail (0.5.2: tools/hongqiao.py, bigboat.py, boats_hd.py)
+qm_canopy	7	max	0	0.12	4286	1706	0	1024	512	-	0	# procedural, near detail (0.5.2: tools/hongqiao.py, bigboat.py, boats_hd.py)
+qm_rowboat	5	max	0	0.12	3912	1272	0	2048	512	-	0	# procedural, near detail (0.5.2: tools/hongqiao.py, bigboat.py, boats_hd.py)
+qm_oxcart	5	max	0	0.12	29000	6000	13000	2048	1024	-	0	# procedural: assembled from a baked ox and cart (0.5.2: tools/assemble_oxcart.py)
+qm_sedan	2.2	h	-90	0.12	22000	4000	10000	2048	1024	-	0
+qm_barrow	1.7	h	0	0.12	22000	4000	10000	2048	1024	-	0
+qm_donkey	1.6	h	20	0.12	22000	5000	10000	2048	1024	-	0
+qm_camel	2.4	h	0	0.12	22000	5000	10000	2048	1024	-	0
+qm_horse	2.5	h	0	0.12	22000	5000	10000	2048	1024	-	0
+p_porter	1.7	h	-121	0.12	22000	3000	10000	2048	1024	-	0
+p_boatman	1.75	h	0	0.12	22000	3000	0	2048	1024	-	0
+p_merchant	1.75	h	0	0.12	22000	3000	10000	2048	1024	-	0
+p_scholar	1.75	h	-90	0.12	22000	3000	10000	2048	1024	-	0
+p_vendor	1.7	h	-91	0.12	22000	3000	10000	2048	1024	-	0
+p_woman	1.65	h	0	0.12	22000	3000	10000	2048	1024	-	0
+p_child	1.1	h	-135	0.12	22000	3000	10000	2048	1024	-	0
+p_driver	1.7	h	7	0.12	22000	3000	10000	2048	1024	-	0
+p_story	1.7	h	-90	0.12	22000	3000	0	2048	1024	-	0
 p_guard	1.85	h	-90	0.12	15000	3000	0	2048	1024	-	0
 t_willow	9	h	0	0.12	20000	6700	0	2048	1024	green	0
 t_elm	11	h	0	0.12	18000	9000	0	2048	1024	green	0
@@ -46,4 +49,4 @@ ql_cottage	6	h	0	0.12	20000	9000	0	2048	1024	-	0
 ql_mill	7	h	0	0.12	20000	9000	0	2048	1024	-	0
 ql_fishboat	5	max	0	0.12	12000	5400	0	2048	1024	-	5300
 ql_pine	12	h	0	0.12	12000	4000	0	2048	1024	-	0
-ql_traveler	2.3	h	0	0.12	15000	5000	7000	2048	1024	-	0
+ql_traveler	2.3	h	0	0.12	22000	5000	10000	2048	1024	-	0

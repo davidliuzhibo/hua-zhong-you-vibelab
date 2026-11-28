@@ -1,13 +1,34 @@
 {
  "_doc": "Walk cycles of 画中游's moving models (tools/blender/walk.py): leg boxes as fractions of each model's bounding box (Blender x, y, z; z up; -y is the front unless fwd says otherwise). Quadrupeds walk LH, LF, RH, RF a quarter apart.",
  "p_porter": {
-  "biped": [
-   0.47,
-   0,
-   1
+  "legs": [
+   {
+    "box": [
+     0.3,
+     0.85,
+     0,
+     0.5,
+     0,
+     0.47
+    ],
+    "phase": 0
+   },
+   {
+    "box": [
+     0.3,
+     0.85,
+     0.5,
+     1,
+     0,
+     0.47
+    ],
+    "phase": 0.5
+   }
   ],
   "r": 0.09,
-  "r_foot": 0.17
+  "r_foot": 0.17,
+  "max_amp": 18,
+  "_note": "0.5.2 HD porter: caught mid-stride, feet in line along the walk (x 0.55, y 0.21 / 0.79): legs split front/back"
  },
  "p_vendor": {
   "biped": [
@@ -20,14 +41,28 @@
  },
  "p_child": {
   "biped": [
-   0.4,
+   0.36,
    0,
    1
   ],
   "r": 0.09,
-  "r_foot": 0.17
+  "r_foot": 0.16,
+  "max_amp": 14,
+  "blend": 0.2,
+  "soft": 0.08,
+  "_note": "0.5.2 HD child: hip lower, softer, smaller steps (the baggy crotch tore at 0.4)"
  },
- "p_scholar": {"biped": [0.45, 0, 1], "r": 0.11, "r_foot": 0.17, "max_amp": 12, "pin_soft": 0},
+ "p_scholar": {
+  "biped": [
+   0.45,
+   0,
+   1
+  ],
+  "r": 0.11,
+  "r_foot": 0.17,
+  "max_amp": 12,
+  "pin_soft": 0
+ },
  "p_merchant": {
   "biped": [
    0.42,
@@ -41,139 +76,137 @@
   "r": 0.12,
   "r_foot": 0.17
  },
- "p_woman": {"biped": [0.42, 0, 1], "biped_amp": [10, 10], "r": 0.12, "r_foot": 0.17, "pin_soft": 1},
+ "p_woman": {
+  "biped": [
+   0.42,
+   0,
+   1
+  ],
+  "biped_amp": [
+   6,
+   6
+  ],
+  "r": 0.12,
+  "r_foot": 0.17,
+  "pin_soft": 1,
+  "knit": [
+   0.015,
+   0.1,
+   0.6
+  ],
+  "_note": "0.5.2 HD woman: small steps and the skirt knitted shut (it split open at 10)"
+ },
  "qm_horse": {
   "legs": [
    {
     "box": [
-     0,
-     0.5,
-     0,
      0.45,
-     0,
-     0.4
-    ],
-    "phase": 0.25
-   },
-   {
-    "box": [
-     0.5,
+     0.8,
+     0.62,
      1,
      0,
-     0.45,
-     0,
-     0.4
-    ],
-    "phase": 0.75
-   },
-   {
-    "box": [
-     0,
-     0.5,
-     0.6,
-     0.86,
-     0,
-     0.4
+     0.38
     ],
     "phase": 0
    },
    {
     "box": [
-     0.5,
-     1,
-     0.6,
-     0.86,
+     0.45,
+     0.78,
+     0.16,
+     0.58,
      0,
-     0.4
+     0.38
+    ],
+    "phase": 0.25
+   },
+   {
+    "box": [
+     0.1,
+     0.45,
+     0.58,
+     0.96,
+     0,
+     0.38
     ],
     "phase": 0.5
+   },
+   {
+    "box": [
+     0.1,
+     0.45,
+     0.16,
+     0.55,
+     0,
+     0.38
+    ],
+    "phase": 0.75
    }
   ],
   "r": 0.05,
   "r_foot": 0.08,
-  "max_amp": 20
+  "max_amp": 20,
+  "_note": "0.5.2 HD horse: hooves measured (right fore y 0.38, right hind 0.70 at x 0.25; left hind 0.82 at x 0.6-0.7; left fore raised); left = +x"
  },
  "qm_camel": {
   "legs": [
    {
     "box": [
-     0,
      0.5,
-     0.1,
-     0.45,
-     0,
-     0.46
-    ],
-    "phase": 0.25
-   },
-   {
-    "box": [
-     0.5,
-     1,
-     0.1,
-     0.45,
-     0,
-     0.46
-    ],
-    "phase": 0.75
-   },
-   {
-    "box": [
-     0,
-     0.5,
-     0.55,
+     0.8,
+     0.8,
      1,
      0,
-     0.46
+     0.44
     ],
     "phase": 0
    },
    {
     "box": [
      0.5,
-     1,
+     0.78,
+     0.18,
      0.55,
-     1,
      0,
-     0.46
+     0.44
+    ],
+    "phase": 0.25
+   },
+   {
+    "box": [
+     0.2,
+     0.5,
+     0.6,
+     0.86,
+     0,
+     0.44
     ],
     "phase": 0.5
+   },
+   {
+    "box": [
+     0.22,
+     0.5,
+     0.18,
+     0.55,
+     0,
+     0.44
+    ],
+    "phase": 0.75
    }
   ],
   "r": 0.05,
   "r_foot": 0.08,
-  "max_amp": 18
+  "max_amp": 16,
+  "_note": "0.5.2 HD camel: hooves measured (fore y 0.25-0.50 across x 0.29-0.73, right hind y 0.72 x 0.36, left hind y 0.93 x 0.63); left = +x"
  },
  "qm_donkey": {
-  "_note": "hooves measured on the side view: one fore leg far forward (y 0.19), the other under the chest (0.54), hind 0.81/0.86",
   "legs": [
    {
     "box": [
-     0,
-     1,
-     0.05,
-     0.33,
-     0,
-     0.37
-    ],
-    "phase": 0.25
-   },
-   {
-    "box": [
-     0,
-     1,
-     0.4,
-     0.66,
-     0,
-     0.37
-    ],
-    "phase": 0.75
-   },
-   {
-    "box": [
-     0.3,
-     0.53,
-     0.7,
+     0.5,
+     0.78,
+     0.62,
      1,
      0,
      0.37
@@ -182,49 +215,50 @@
    },
    {
     "box": [
-     0.53,
-     0.8,
-     0.7,
+     0.5,
+     0.78,
+     0.04,
+     0.52,
+     0,
+     0.37
+    ],
+    "phase": 0.25
+   },
+   {
+    "box": [
+     0.22,
+     0.5,
+     0.62,
      1,
      0,
      0.37
     ],
     "phase": 0.5
+   },
+   {
+    "box": [
+     0.22,
+     0.5,
+     0.04,
+     0.52,
+     0,
+     0.37
+    ],
+    "phase": 0.75
    }
   ],
   "r": 0.08,
   "r_foot": 0.13,
-  "max_amp": 16
+  "max_amp": 16,
+  "_note": "0.5.2 HD donkey: hooves measured on the walk base (fore y 0.24 reaching forward, hind y 0.78-0.84, middle x 0.5); left = +x"
  },
  "ql_traveler": {
   "legs": [
    {
     "box": [
-     0,
-     0.5,
-     0,
-     0.42,
-     0,
-     0.28
-    ],
-    "phase": 0.25
-   },
-   {
-    "box": [
-     0.5,
-     1,
-     0,
-     0.42,
-     0,
-     0.28
-    ],
-    "phase": 0.75
-   },
-   {
-    "box": [
-     0,
-     0.5,
-     0.6,
+     0.62,
+     0.92,
+     0.64,
      1,
      0,
      0.28
@@ -233,34 +267,53 @@
    },
    {
     "box": [
-     0.5,
-     1,
-     0.6,
+     0.47,
+     0.7,
+     0.22,
+     0.56,
+     0,
+     0.28
+    ],
+    "phase": 0.25
+   },
+   {
+    "box": [
+     0.3,
+     0.62,
+     0.64,
      1,
      0,
      0.28
     ],
     "phase": 0.5
+   },
+   {
+    "box": [
+     0.25,
+     0.47,
+     0.22,
+     0.56,
+     0,
+     0.28
+    ],
+    "phase": 0.75
    }
   ],
   "r": 0.05,
   "r_foot": 0.08,
-  "max_amp": 20
+  "max_amp": 20,
+  "_note": "0.5.2 HD traveler: hooves measured (fore y 0.38 at x 0.43/0.51, hind y 0.78/0.88 at x 0.79/0.45); left = +x"
  },
  "p_driver": {
   "biped": [
-   0.42,
+   0.47,
    0,
-   0.47
-  ],
-  "quad": [
-   0.37,
-   0.53,
    1
   ],
-  "r": 0.07,
-  "r_foot": 0.11,
-  "max_amp": 20
+  "r": 0.08,
+  "r_foot": 0.13,
+  "max_amp": 20,
+  "_note": "0.5.2: a driver on his own (the HD model has no donkey)"
  },
  "qm_sedan": {
   "fwd": [
@@ -375,91 +428,137 @@
   "legs": [
    {
     "box": [
-     0.62,
-     0.82,
-     0,
      0.5,
+     0.67,
+     0.24,
+     0.37,
      0,
-     0.27
+     0.36
     ],
     "phase": 0
    },
    {
     "box": [
-     0.62,
-     0.82,
      0.5,
-     1,
+     0.67,
+     0.37,
+     0.52,
      0,
-     0.27
+     0.36
     ],
     "phase": 0.5
    },
    {
     "box": [
-     0.82,
-     1,
+     0.71,
+     0.92,
+     0.24,
+     0.37,
      0,
-     0.5,
-     0,
-     0.27
+     0.36
     ],
     "phase": 0.25
    },
    {
     "box": [
-     0.82,
-     1,
-     0.5,
-     1,
+     0.71,
+     0.92,
+     0.37,
+     0.52,
      0,
-     0.27
+     0.36
     ],
     "phase": 0.75
+   },
+   {
+    "box": [
+     0.5,
+     0.7,
+     0.66,
+     0.8,
+     0,
+     0.36
+    ],
+    "phase": 0.1
+   },
+   {
+    "box": [
+     0.5,
+     0.7,
+     0.8,
+     0.96,
+     0,
+     0.36
+    ],
+    "phase": 0.6
+   },
+   {
+    "box": [
+     0.74,
+     0.97,
+     0.66,
+     0.8,
+     0,
+     0.36
+    ],
+    "phase": 0.35
+   },
+   {
+    "box": [
+     0.74,
+     0.97,
+     0.8,
+     0.96,
+     0,
+     0.36
+    ],
+    "phase": 0.85
    }
   ],
   "r": 0.04,
   "r_foot": 0.06,
-  "max_amp": 18,
+  "max_amp": 12,
+  "pin_soft": 1,
   "wheels": [
    {
     "box": [
+     0.12,
+     0.46,
      0,
-     0.45,
+     0.042,
      0,
-     0.08,
-     0,
-     0.6
+     0.8
     ],
     "axis": "y",
     "c": [
-     0.2125,
-     0.5,
-     0.256
+     0.29,
+     0.02,
+     0.37
     ],
-    "radius": 0.8,
+    "radius": 0.69,
     "turns": 1,
     "auto_c": true
    },
    {
     "box": [
+     0.12,
+     0.46,
+     0.7,
+     0.785,
      0,
-     0.45,
-     0.92,
-     1,
-     0,
-     0.6
+     0.8
     ],
     "axis": "y",
     "c": [
-     0.2125,
-     0.5,
-     0.256
+     0.29,
+     0.74,
+     0.37
     ],
-    "radius": 0.8,
+    "radius": 0.69,
     "turns": 1,
     "auto_c": true
    }
-  ]
+  ],
+  "_note": "0.5.2: assembled ox cart (tools/assemble_oxcart.py): ox in the shafts (y 0.24-0.52), trace ox beside (0.66-0.96); wheels only their own slab (lateral 0-0.042 and 0.70-0.785: the body planks are just inside), up to 0.8 (1.38 m wheels)"
  }
 }

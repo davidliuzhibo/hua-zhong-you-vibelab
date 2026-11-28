@@ -122,6 +122,9 @@ class GalleryView {
         if (wallRoot.enabled != out && section != null) wallRoot.enabled = out
         if (homeRoot.enabled && on) homeRoot.enabled = false
         if (trophyRoot.enabled != out) trophyRoot.enabled = out
+        // v0.5.0: the scroll wall's 上元 darkening goes with the wall (left on inside the night world, it stood round the
+        // player as a dark arc across the sky: emulator 2026-11-27).
+        night?.let { if (it.enabled != out) it.enabled = out }
         motes.entity.enabled = out
     }
 
@@ -650,6 +653,7 @@ class GalleryView {
         if (!on) return
         night = Entity().also { e ->
             e.addChild(model(arc(R0 - 0.35, span, top + 0.05, top - wallH - 0.05, 0.0, 1.0, 0.0, 1.0, "night"), unlit(color(0.02f, 0.03f, 0.08f, 0.55f), BlendingMode.TRANSPARENT).apply { setCullingMode(MaterialCullingMode.NONE) }))
+            e.enabled = wallRoot.enabled
             root.addChild(e)
         }
     }

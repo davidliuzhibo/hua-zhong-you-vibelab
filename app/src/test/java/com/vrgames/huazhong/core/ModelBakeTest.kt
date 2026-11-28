@@ -11,6 +11,7 @@ import java.nio.ByteOrder
  * v0.4.0 (PICO 2026-11-23: 「模型都比较粗糙……用高模烘焙低模」): every scene model the worlds use ships as a near and a far
  * version baked from its raw (tools/bake_scenes.sh), each with its own normal map and tangents, power-of-two maps,
  * within its triangle budget (tools/scene_models.tsv); the walkers' walk cycles too. Read straight from the GLB files.
+ * v0.5.0: most now have their light baked into the colour map (unlit, tools/bake_light_all.sh): those need no normal map.
  */
 class ModelBakeTest {
     private val scenes = File("src/main/assets/scenes")
@@ -44,8 +45,15 @@ class ModelBakeTest {
             val o = ((bv["byteOffset"] as Double?) ?: 0.0).toInt()
             return imageSize(bin, o)
         }
+        /** The model's own material: the one with a colour map (the peach's blossoms and the boat's net have none). */
+        @Suppress("UNCHECKED_CAST")
+        fun mainMaterial(): Map<String, Any?>? = list("materials").firstOrNull { ((it["pbrMetallicRoughness"] as Map<String, Any?>?)?.get("baseColorTexture")) != null }
+            ?: list("materials").firstOrNull()
+        /** v0.5.0: its light baked into the colour map (tools/blender/bake_light.py): unlit, no normal map. */
+        @Suppress("UNCHECKED_CAST")
+        fun lightBaked(): Boolean = (mainMaterial()?.get("extensions") as Map<String, Any?>?)?.containsKey("KHR_materials_unlit") == true
         fun materialTex(key: String): Int? {
-            val m = list("materials").firstOrNull() ?: return null
+            val m = mainMaterial() ?: return null
             @Suppress("UNCHECKED_CAST")
             val t = (if (key == "baseColorTexture") (m["pbrMetallicRoughness"] as Map<String, Any?>?)?.get(key) else m[key]) as Map<String, Any?>? ?: return null
             return (t["index"] as Double).toInt()
@@ -74,9 +82,13 @@ class ModelBakeTest {
                 val extra = if (suffix == "") t[5] else t[5] / 2
                 assertTrue("$name: $tri triangles, budget $faces + $extra", tri <= (faces + extra) * 1.05 && tri >= faces * 0.8)
                 val base = g.materialTex("baseColorTexture") ?: error("$name: no colour map")
-                val normal = g.materialTex("normalTexture") ?: error("$name: no normal map")
-                assertTrue("$name: tangents for its normal map", g.hasTangents())
-                for (ti in listOf(base, normal)) {
+                // v0.5.0: light-baked models (unlit) carry the relief in their colours; the others their normal map.
+                val maps = if (g.lightBaked()) listOf(base) else {
+                    val normal = g.materialTex("normalTexture") ?: error("$name: no normal map")
+                    assertTrue("$name: tangents for its normal map", g.hasTangents())
+                    listOf(base, normal)
+                }
+                for (ti in maps) {
                     val (w, h) = g.texSize(ti)
                     assertTrue("$name: ${w}x$h is a power of two", w > 0 && w and (w - 1) == 0 && h and (h - 1) == 0)
                     assertEquals("$name: maps at $px px", px, w)
@@ -99,7 +111,7 @@ class ModelBakeTest {
             val fr = g.tris()
             assertEquals("$m: eight frames", 8, fr.size)
             assertTrue("$m: ${fr.max()} triangles a frame, budget ${t[2]}", fr.max() <= t[2] * 1.2)
-            assertTrue("$m walk: normal map", g.materialTex("normalTexture") != null && g.hasTangents())
+            assertTrue("$m walk: light baked, or a normal map", g.lightBaked() || (g.materialTex("normalTexture") != null && g.hasTangents()))
             val (w, h) = g.texSize(g.materialTex("baseColorTexture")!!)
             assertTrue("$m walk: ${w}x$h power of two", w and (w - 1) == 0 && h and (h - 1) == 0)
         }

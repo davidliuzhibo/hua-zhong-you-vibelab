@@ -21,12 +21,13 @@ class PlacementLockTest {
     private fun const(text: String, name: String): Double =
         Regex("const val $name = (-?[0-9.]+)f?").find(text)?.groupValues?.get(1)?.toDouble() ?: error("$name not found")
 
-    /** The panels' put(PANEL_X, Vector3(x, y, z), pitch[, yaw]) in the eye frame. */
-    private fun panels(): Map<String, DoubleArray> = Regex("""put\((PANEL_\w+), Vector3\((-?[0-9.]+)f, (-?[0-9.]+)f, (-?[0-9.]+)f\), (-?[0-9.]+)f(?:, (-?[0-9.]+)f)?\)""")
-        .findAll(stage).associate { m ->
-            val g = m.groupValues
-            g[1] to doubleArrayOf(g[2].toDouble(), g[3].toDouble(), g[4].toDouble(), g[5].toDouble(), g[6].ifEmpty { "0" }.toDouble())
-        }
+    /**
+     * The panels' places in the eye frame: x, y, z, pitch, yaw. v0.5.2: GalleryStage puts them from core/MiniPanels.PANELS
+     * (their usual places; over a miniature or the bench a panel may stand higher or nearer, MiniPanels.placement).
+     */
+    private fun panels(): Map<String, DoubleArray> = MiniPanels.PANELS.associate { p ->
+        "PANEL_" + p.id.uppercase() to doubleArrayOf(p.x, p.y, p.z, p.pitch, p.yaw)
+    }
 
     companion object {
         /** 0.3.3 (device-approved 2026-11-18): the miniature's table, eye frame (m). */

@@ -49,6 +49,8 @@ object Perf {
             val lo = "${m.m}_lo"
             val mid = m.at(m.length / 2 / m.speed)
             when {
+                // v0.5.2: on the miniature a walker shows its light version (WorldView.WalkerLod).
+                walk in tris && mini && r.boatLod && lo in tris -> add(lo)
                 walk in tris -> add(walk)
                 m.boat && r.boatLod && lo in tris && (mini || hypot(mid[0], mid[1]) > r.lodFar) -> add(lo)
                 else -> add(m.m)
@@ -56,6 +58,8 @@ object Perf {
         }
         w.restore?.let { rs -> add(if (r.boatLod && "${rs.m}_lo" in tris && (mini || hypot(rs.x, rs.z) > r.lodFar)) "${rs.m}_lo" else rs.m) }
         if (w.mastBridgeZ != null) add("qm_mast")
+        // v0.5.1: the ground round the player made for real (life size only).
+        if (!mini && "ng_${w.id}" in tris) add("ng_${w.id}")
         return Count(t, d)
     }
 

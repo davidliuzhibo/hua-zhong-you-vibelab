@@ -162,6 +162,7 @@ fun GalleryStage() {
             Game.Phase.HOME, Game.Phase.CARD -> {
                 v.clearWall()
                 v.showBench(false)
+                if (!Game.inside) setPlacement(BASE_PLACE, v, panels)
                 for (n in listOf("strip_qm", "strip_ql")) if (n !in strips) {
                     withContext(Dispatchers.IO) { runCatching { TextureResource.load("sections/$n.jpg", LoadType.FROM_ASSETS, TextureCreateOption()).shared() } }
                         .onSuccess { strips[n] = it }.onFailure { Log.w(TAG, "strip $n: ${it.message}") }
@@ -178,8 +179,11 @@ fun GalleryStage() {
                 v.clearWall()
                 if (s.bench) {
                     v.showBench(true)
+                    // v0.5.2: the panels clear of the bench's things (the result panel stood behind the little mountain).
+                    if (!Game.inside) setPlacement(BENCH_PLACE, v, panels)
                 } else {
                     v.showBench(false)
+                    if (!Game.inside) setPlacement(BASE_PLACE, v, panels)
                     val t = withContext(Dispatchers.IO) { runCatching { TextureResource.load("sections/${s.id}.jpg", LoadType.FROM_ASSETS, TextureCreateOption()) }.getOrNull() }
                     if (t == null) {
                         Log.w(TAG, "no picture for ${s.id}")
@@ -217,8 +221,20 @@ fun GalleryStage() {
             if (Game.full) w.loadSky()
             if (!Game.inside || Game.section !== s) return@LaunchedEffect
             w.place(Game.full, seat.eyeY)
-            sunRef?.let { it.components.set(DirectionalLightComponent(Color(0xFFFFEBD0).toColor4(), 700f, !Game.full)) }
+            // v0.5.1 (emulator 2026-11-27: hard dark shadows lay across the life-size streets, still there a minute
+            // later): a new light component set over the old one did not switch its shadows off. The light's own switch.
+            sunRef?.let { e ->
+                val l = e.components[DirectionalLightComponent::class.java]
+                if (l != null) runCatching { l.castsShadowEnabled = !Game.full }
+                else e.components.set(DirectionalLightComponent(Color(0xFFFFEBD0).toColor4(), 700f, !Game.full))
+                Log.i(TAG, "sun shadows ${e.components[DirectionalLightComponent::class.java]?.castsShadowEnabled} (full=${Game.full})")
+            }
             v.inside(Game.full)
+            // v0.5.2 (device 2026-11-28: a miniature bridge through 虹桥's result panel): with the miniature on the table the
+            // panels stand where nothing of it is in their way (core/MiniPanels, worked out once per world); life size,
+            // in their usual places.
+            val place = if (Game.full) BASE_PLACE else withContext(Dispatchers.Default) { miniPlaceOf(world, w) }
+            setPlacement(place, v, panels)
             // show() re-applies what each mode hides (hiding under a hidden root did not hold).
             w.show(true)
             Game.worldReady()
@@ -231,6 +247,7 @@ fun GalleryStage() {
             w.show(false)
             w.clear()
             v.inside(false)
+            setPlacement(if (s?.bench == true && Game.phase != Game.Phase.HOME && Game.phase != Game.Phase.CARD) BENCH_PLACE else BASE_PLACE, v, panels)
         }
     }
     LaunchedEffect(Game.debugView, view) {
@@ -464,7 +481,7 @@ private val frames = HashMap<String, Entity>()
 private var sunRef: Entity? = null
 
 private fun attach(v: GalleryView, a: SpatialViewAttachments, panels: HashMap<String, Entity>) {
-    fun put(id: String, pos: Vector3, pitch: Float, yaw: Float = 0f) {
+    fun put(id: String) {
         val e = a.entity(id) ?: return
         val was = panels[id]
         if (was === e) return
@@ -474,19 +491,50 @@ private fun attach(v: GalleryView, a: SpatialViewAttachments, panels: HashMap<St
         was?.let { it.enabled = false; it.getParent()?.removeChild(it) }
         panels[id] = e
         v.root.addChild(e)
-        e.setPos(pos)
         PANEL_FRAMES[id]?.let { name -> frames[name]?.clone(Entity.CloneOptions(true, true))?.let { f -> f.setPos(Vector3(0f, 0f, -0.006f)); e.addChild(f) } }
-        e.transform().eulerAngles = EulerAngles(pitch, yaw, 0f)
+        placePanel(id, e)
     }
-    // The eye frame: the title and result before the player, a little low; the task scroll at the
-    // left, turned in; notes at the right; the menu tab low at the left.
-    put(PANEL_CARD, Vector3(0f, -0.26f, -0.85f), -12f)
-    put(PANEL_RESULT, Vector3(0f, -0.24f, -0.82f), -12f)
-    put(PANEL_HOME, Vector3(0f, -0.5f, -0.78f), -30f)
-    // v0.3: a little further out to the sides, clear of the miniature's table (1.1 m wide, from 0.42 m ahead).
-    put(PANEL_TASK, Vector3(-0.74f, -0.22f, -0.5f), -18f, 50f)
-    put(PANEL_NOTE, Vector3(0.72f, -0.2f, -0.52f), -15f, -50f)
-    put(PANEL_MENU, Vector3(-0.6f, -0.58f, -0.4f), -35f, 50f)
+    // The eye frame (core/MiniPanels.PANELS): the title and result before the player, a little low; the task scroll at
+    // the left, turned in; notes at the right; the menu tab low at the left.
+    for (id in listOf(PANEL_CARD, PANEL_RESULT, PANEL_HOME, PANEL_TASK, PANEL_NOTE, PANEL_MENU)) put(id)
+}
+
+/** Where each panel stands now (its usual place, or clear of the miniature on the table). */
+private val BASE_PLACE: Map<String, com.vrgames.huazhong.core.MiniPanels.Panel> = com.vrgames.huazhong.core.MiniPanels.PANELS.associateBy { it.id }
+private var placement: Map<String, com.vrgames.huazhong.core.MiniPanels.Panel> = BASE_PLACE
+private val miniPlaces = HashMap<String, Map<String, com.vrgames.huazhong.core.MiniPanels.Panel>>()
+private var shapesCache: Map<String, com.vrgames.huazhong.core.MiniPanels.Shape>? = null
+/** v0.5.2: with the studio bench before the player (研色画室). */
+private val BENCH_PLACE: Map<String, com.vrgames.huazhong.core.MiniPanels.Panel> by lazy {
+    com.vrgames.huazhong.core.MiniPanels.benchPlacement().also { p ->
+        Log.i(TAG, "panels over the bench: " + p.values.filter { q -> BASE_PLACE[q.id] != q }.joinToString { q -> "${q.id} y %.2f z %.2f".format(q.y, q.z) }.ifEmpty { "all in their places" })
+    }
+}
+
+private fun miniPlaceOf(world: com.vrgames.huazhong.core.World, w: com.vrgames.huazhong.render.WorldView): Map<String, com.vrgames.huazhong.core.MiniPanels.Panel> {
+    // v0.5.2: 上元夜 (虹桥 at night) has its lanterns on the miniature too.
+    val key = world.id + if (w.night) "n" else ""
+    return synchronized(miniPlaces) { miniPlaces[key] } ?: run {
+        val t0 = android.os.SystemClock.uptimeMillis()
+        val sizes = w.sizes.mapValues { (_, v) -> doubleArrayOf(v[0].toDouble(), v[1].toDouble(), v[2].toDouble()) }
+        val shapes = synchronized(miniPlaces) { shapesCache ?: com.vrgames.huazhong.render.WorldView.loadShapes(w.context).also { shapesCache = it } }
+        val p = com.vrgames.huazhong.core.MiniPanels.placement(world, sizes, w.night, shapes)
+        val moved = p.values.filter { q -> BASE_PLACE[q.id] != q }.joinToString { q -> "${q.id} y %.2f z %.2f".format(q.y, q.z) }
+        Log.i(TAG, "panels over $key's miniature: ${moved.ifEmpty { "all in their places" }} (${android.os.SystemClock.uptimeMillis() - t0} ms)")
+        synchronized(miniPlaces) { miniPlaces[key] = p }
+        p
+    }
+}
+
+private fun placePanel(id: String, e: Entity) {
+    val p = placement[id] ?: return
+    e.setPos(Vector3(p.x.toFloat(), p.y.toFloat(), p.z.toFloat()))
+    e.transform().eulerAngles = EulerAngles(p.pitch.toFloat(), p.yaw.toFloat(), 0f)
+}
+
+private fun setPlacement(p: Map<String, com.vrgames.huazhong.core.MiniPanels.Panel>, v: GalleryView, panels: HashMap<String, Entity>) {
+    placement = p
+    for ((id, e) in panels) placePanel(id, e)
 }
 
 /**

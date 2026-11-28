@@ -35,7 +35,8 @@ class WorldsTest {
         val a = m.at(5.0)
         assertEquals(5.0, a[0], 1e-9)
         assertEquals("facing +x", 90.0, a[2], 1e-9)
-        val back = m.at(15.0)
+        // v0.5.1: at the end it stops and turns round (Mover.TURN_S), then goes back.
+        val back = m.at(15.0 + Mover.TURN_S)
         assertEquals("back and forth", 5.0, back[0], 1e-9)
         assertEquals("facing back", 270.0, back[2], 1e-9)
         val bridge = Mover("p", listOf(-13.0 to 0.0, 13.0 to 0.0), 1.0, loop = false, arc = 6.0)

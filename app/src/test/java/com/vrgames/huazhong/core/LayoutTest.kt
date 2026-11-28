@@ -74,7 +74,7 @@ class LayoutTest {
     }
 
     private fun samples(mv: Mover): List<Pair<Double, Double>> {
-        val pts = if (mv.loop) mv.path + mv.path.first() else mv.path
+        val pts = if (mv.loop && !mv.reset) mv.path + mv.path.first() else mv.path
         val out = ArrayList<Pair<Double, Double>>()
         for (i in 0 until pts.size - 1) {
             val (ax, az) = pts[i]
@@ -106,10 +106,29 @@ class LayoutTest {
             }
         }
         // v0.3.3 (device 2026-11-18, 虹桥: 「大船开过来……船的一侧从自己身体中穿过」): at life size the player stands at the
-        // origin; nothing comes within 0.8 m (a mover by its full half length, whichever way it faces).
+        // origin; nothing comes within 1.2 m of them. v0.5.1: measured to the mover's real outline along its way (a 16 m
+        // boat passing 1.8 m to one side was counted as a 16 m circle).
         for (mv in w.movers) {
             val (across, along) = moverHalf(mv)
-            for ((x, z) in samples(mv)) if (hypot(x, z) - max(across, along) < 0.8) { out += "${w.id}: ${mv.m} reaches the player at (%.1f, %.1f)".format(x, z); break }
+            val pts = if (mv.loop && !mv.reset) mv.path + mv.path.first() else mv.path
+            loop@ for (i in 0 until pts.size - 1) {
+                val (ax, az) = pts[i]
+                val (bx, bz) = pts[i + 1]
+                val l = hypot(bx - ax, bz - az)
+                if (l <= 0) continue
+                val ux = (bx - ax) / l
+                val uz = (bz - az) / l
+                val n = max(1, (l / 0.2).toInt())
+                for (j in 0..n) {
+                    val x = ax + (bx - ax) * j / n
+                    val z = az + (bz - az) * j / n
+                    // The origin in the mover's frame: along its way and across it.
+                    val a = (-x) * ux + (-z) * uz
+                    val c = (-x) * uz - (-z) * ux
+                    val d = hypot(max(abs(a) - along, 0.0), max(abs(c) - across, 0.0))
+                    if (d < 1.2) { out += "${w.id}: ${mv.m} reaches the player at (%.1f, %.1f)".format(x, z); break@loop }
+                }
+            }
         }
         for (b in bs) if (dist(b, 0.0, 0.0) < 0.8) out += "${w.id}: ${b.m}@(${b.x},${b.z}) stands on the player"
         // Movers against each other, over ten minutes.
